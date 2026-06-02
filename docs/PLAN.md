@@ -1,175 +1,250 @@
-# PLAN: tinywasm/ssr — Extractor de assets SSR (delegado desde assetmin)
+# PLAN: tinywasm/ssr — Extractor de assets SSR
 
 ## Repositorio
-`github.com/tinywasm/ssr` — path local: `tinywasm/ssr/` (creado con gonew, v0.0.1)
+`github.com/tinywasm/ssr` — path local: `tinywasm/ssr/`
 
-Estado actual: stub `type Ssr struct{}` + `func New() *Ssr` (a reemplazar).
-
-## Dependencias de ejecución
-```bash
-go install github.com/tinywasm/devflow/cmd/gotest@latest
-```
-
----
+Estado actual:
+- `ssr.go` — stub `type Ssr struct{}` + `func New() *Ssr` (reemplazar)
+- `invoke_original.go`, `extract_original.go`, `cache_original.go`, `import_scanner_original.go`
+  — código fuente original recuperado de assetmin v0.3.5 (package assetmin, adaptar)
 
 ## Propósito
 
-assetmin mezclaba dos roles: **bundler/minifier** (su nombre) y **extractor SSR** (codegen +
-`go run` sobre el proyecto). Este paquete absorbe el **extractor**, dejando assetmin como bundler
-puro. Mismo patrón que `image/min`: la extracción/procesamiento vive fuera; assetmin recibe el
-contenido.
+Absorber el extractor SSR de assetmin. assetmin define el contrato; ssr implementa.
+Patrón simétrico a `image/min`.
 
-`tinywasm/ssr` descubre los módulos de componentes, ejecuta sus métodos `Render*` en build-time
-(generando un `main.go` temporal y corriéndolo), y devuelve los assets por módulo. **No** hace
-bundling ni minificación.
+## Contrato (definido en assetmin v0.4.0)
 
----
-
-## Contrato (evita ciclo de dependencias)
-
-**assetmin define** la interfaz y el DTO (es el consumidor → define el contrato).
-**ssr implementa** la interfaz y devuelve el DTO (importa assetmin).
-**assetmin NO importa ssr** → sigue liviano (sin `os/exec` ni toolchain en su código).
-**app inyecta** — simétrico con `ImageProcessor`.
-
-En assetmin (ver assetmin PLAN Cambio 7):
 ```go
+// github.com/tinywasm/assetmin
 type SSRAssets struct {
     ModuleName  string
     RootCSS     string
     CSS         string
     JS          []*js.Script
     HTML        string
-    Icons       *svg.Sprite   // ← antes map[string]string
+    Icons       *svg.Sprite
     IsRoot      bool
     IsFramework bool
 }
 
 type SSRExtractor interface {
-    ExtractModule(moduleDir string) (*SSRAssets, error)  // hot reload de un módulo
-    ExtractAll() ([]*SSRAssets, error)                   // escaneo completo (descubre módulos)
+    ExtractModule(moduleDir string) (*SSRAssets, error)
+    ExtractAll() ([]*SSRAssets, error)
 }
-
-func (c *AssetMin) SetSSRExtractor(e SSRExtractor)
 ```
 
-ssr implementa `SSRExtractor` devolviendo `*assetmin.SSRAssets`. El routing (slots, RootCSS
-single-winner) **se queda en assetmin** (`routeAssets`, `resolveAndApplyRootCSS`); ssr solo
-extrae datos crudos por módulo.
-
 ---
 
-## Qué se mueve desde assetmin
+## Paso 1: Reemplazar el stub en `ssr.go`
 
-| Archivo en assetmin | Destino en ssr | Contenido |
-|---------------------|----------------|-----------|
-| `ssr_invoke.go` | `invoke.go` | codegen del `main.go`, `go run`, parseo JSON, regex `Render*` |
-| `ssr_extract.go` | `extract.go` | descubrimiento de módulos (`go list -m`), extracción por módulo |
-| `ssr_loader.go` (parte) | `loader.go` | `ExtractAll` (orquestación del escaneo). **NO** `routeAssets`/`resolveAndApplyRootCSS` (quedan en assetmin) |
-| `ssr_cache.go` | `cache.go` | caché md5 de resultados de extracción (skip `go run` si nada cambió) |
-| `import_scanner.go` | (ver Paso 4) | scanning de imports → **delegar a `tinywasm/depfind`** si la API alcanza |
-
-> `ScheduleSSRLoad`/`WaitForSSRLoad`/`LoadSSRModules` (orquestación async + routing) **se quedan
-> en assetmin**, pero su núcleo de extracción llama a `ssrExtractor.ExtractAll()` / `ExtractModule()`.
-
----
-
-## Paso 1: Reemplazar el stub
-
-Eliminar `ssr.go` (stub `Ssr`/`New`). Crear el `Extractor`:
+Eliminar el contenido actual de `ssr.go` y escribir:
 
 ```go
 package ssr
 
-import "github.com/tinywasm/assetmin"
+import (
+    "github.com/tinywasm/assetmin"
+    "github.com/tinywasm/fmt"
+)
+
+const cssModulePath = "tinywasm/css"
 
 type Extractor struct {
     rootDir       string
     listModulesFn func(rootDir string) ([]string, error)
     log           func(...any)
-    // caché, etc.
+    cache         *ssrCache
 }
 
-func New(rootDir string) *Extractor { return &Extractor{rootDir: rootDir, log: func(...any) {}} }
+func New(rootDir string) *Extractor {
+    return &Extractor{
+        rootDir: rootDir,
+        log:     func(...any) {},
+        cache:   newSSRCache(),
+    }
+}
 
-func (e *Extractor) SetLog(fn func(...any))                                   { e.log = fn }
-func (e *Extractor) SetListModulesFn(fn func(string) ([]string, error))      { e.listModulesFn = fn }
+func (e *Extractor) SetLog(fn func(...any))                              { e.log = fn }
+func (e *Extractor) SetListModulesFn(fn func(string) ([]string, error)) { e.listModulesFn = fn }
 
-// ExtractModule / ExtractAll implementan assetmin.SSRExtractor.
-func (e *Extractor) ExtractModule(moduleDir string) (*assetmin.SSRAssets, error) { /* ... */ }
-func (e *Extractor) ExtractAll() ([]*assetmin.SSRAssets, error)                  { /* ... */ }
+func (e *Extractor) ExtractModule(moduleDir string) (*assetmin.SSRAssets, error) {
+    rootDir, err := findProjectRoot(moduleDir)
+    if err != nil {
+        return nil, fmt.Err("find project root:", err)
+    }
+    modules, err := e.discoverModules(rootDir)
+    if err != nil {
+        modules = []module{{path: moduleDir, dir: moduleDir}}
+    }
+    var target module
+    for _, m := range modules {
+        if m.dir == moduleDir {
+            target = m
+            break
+        }
+    }
+    if target.dir == "" {
+        target = module{path: moduleDir, dir: moduleDir}
+    }
+    a, err := extractAssetsForModule(target, rootDir, modules, "", e.cache, e.log)
+    if err != nil || a == nil {
+        return nil, err
+    }
+    a.IsRoot = isRootDir(moduleDir, e.rootDir)
+    a.IsFramework = isFrameworkModule(target.path)
+    return a, nil
+}
+
+func (e *Extractor) ExtractAll() ([]*assetmin.SSRAssets, error) {
+    modules, err := e.discoverModules(e.rootDir)
+    if err != nil {
+        return nil, err
+    }
+    var all []*assetmin.SSRAssets
+    for _, m := range modules {
+        a, err := extractAssetsForModule(m, e.rootDir, modules, "", e.cache, e.log)
+        if err != nil {
+            e.log("ssr extract error:", m.path, err)
+            continue
+        }
+        if a != nil {
+            a.IsRoot = isRootDir(m.dir, e.rootDir)
+            a.IsFramework = isFrameworkModule(m.path)
+            all = append(all, a)
+        }
+    }
+    return all, nil
+}
+
+func (e *Extractor) discoverModules(rootDir string) ([]module, error) {
+    if e.listModulesFn != nil {
+        dirs, err := e.listModulesFn(rootDir)
+        if err != nil {
+            return nil, err
+        }
+        var mods []module
+        for _, d := range dirs {
+            mods = append(mods, module{path: d, dir: d})
+        }
+        return mods, nil
+    }
+    return discoverModules(rootDir)
+}
+
+func isRootDir(dir, rootDir string) bool {
+    if rootDir == "" { return false }
+    return dir == rootDir
+}
+
+func isFrameworkModule(path string) bool {
+    return path == cssModulePath || hasSuffix(path, "/"+cssModulePath)
+}
 ```
 
 ---
 
-## Paso 2: Mover el pipeline de extracción
+## Paso 2: Adaptar los archivos `*_original.go`
 
-Mover los archivos de la tabla, cambiando `package assetmin` → `package ssr`. Ajustar:
-- El DTO de retorno pasa de `*SSRAssets` (local) a `*assetmin.SSRAssets` (importado).
-- Las regex `reRenderCSS/reRenderJS/reRenderHTML/reIconSvg/reRootCSS` se mantienen.
-- El template del `main.go` generado (`GenerateExtractorMain`) se mantiene, ajustando los
-  imports del programa generado a los paths reales de los módulos.
-- **`ExtractAll`/`ExtractModule` pueblan `IsRoot`/`IsFramework`** en el DTO: la lógica
-  `isRootDir(m.Dir, rootDir)` y `isFramework := strings.Contains(m.Path, "tinywasm/css")`
-  (hoy en `assetmin/ssr_loader.go:124-125`) **se mueve a ssr**. El `routeAssets` de assetmin
-  solo **lee** esos flags. La constante `cssModulePath = "tinywasm/css"` y el helper `isRootDir`
-  se mueven a ssr.
-- `Icons` en el DTO y en `ssrCollectorOutput` (struct del programa generado) pasa de
-  `map[string]string` a `*svg.Sprite` (requiere svg con JSON, Paso 3).
+Para cada archivo renombrar y adaptar **sin reescribir lógica**:
+
+### `invoke_original.go` → `invoke.go`
+
+Cambios:
+1. `package assetmin` → `package ssr`
+2. Tipo `Module` (usado internamente) → `module` (minúscula, privado al paquete)
+3. Tipo `SSRAssets` como retorno → `*assetmin.SSRAssets` (importado)
+4. `ssrCollectorOutput.Icons` era `map[string]string` → cambiar a `*svg.Sprite`
+   - En la struct del JSON del proceso generado: `Icons *svg.Sprite \`json:"Icons"\``
+   - `svg.Sprite` ya tiene `MarshalJSON`/`UnmarshalJSON` en svg v0.0.3
+5. Al construir el `assetmin.SSRAssets` de retorno, asignar `Icons: output.Icons`
+6. El template del `main.go` generado NO cambia salvo los imports de los módulos compilados
+
+### `extract_original.go` → `extract.go`
+
+Cambios:
+1. `package assetmin` → `package ssr`
+2. `Module` → `module` (minúscula)
+3. La función `extractSSRAssetsForModule` → `extractAssetsForModule` (firma ajustada a `module`)
+4. El retorno es `*assetmin.SSRAssets` (en lugar de `*SSRAssets` local)
+5. `IsRoot`/`IsFramework` NO se calculan aquí — se calculan en `ssr.go` (ExtractModule/ExtractAll)
+6. Mantener toda la lógica de `ssrSourceFiles` detection y llamada al invoke
+
+### `cache_original.go` → `cache.go`
+
+Cambios:
+1. `package assetmin` → `package ssr`
+2. `SSRAssets` → `assetmin.SSRAssets` como tipo cacheado
+3. Todo lo demás igual
+
+### `import_scanner_original.go` → `scanner.go`
+
+Cambios:
+1. `package assetmin` → `package ssr`
+2. Renombrar `importScanner` → `scanner` (o mantener nombre, privado igual)
+3. Usado internamente por `extract.go` para `moduleSubpackagesUsed`
+4. Todo lo demás igual — NO intentar reemplazar con depfind en este PR
 
 ---
 
-## Paso 3: Serialización del sprite a través del IPC (codegen)
+## Paso 3: go.mod
 
-⚠️ **Cross-cutting con el refactor de svg.** El extractor corre en **otro proceso** (`go run`)
-y devuelve **JSON**. Hoy `Icons` es `map[string]string` (JSON trivial). Con `IconSvg() *svg.Sprite`
-el sprite debe cruzar el límite de proceso.
-
-**Requisito (añadir a `tinywasm/svg`):** `*svg.Sprite` debe ser JSON round-trip —
-implementar `MarshalJSON`/`UnmarshalJSON` (o exportar un slice serializable de
-`{id, body, viewBox}`). Así:
-- El `main.go` generado hace `s.Icons = inst.IconSvg()` y serializa el sprite a JSON.
-- ssr deserializa a `*svg.Sprite` y lo pone en `SSRAssets.Icons`.
-- assetmin hace `masterSprite.Merge(a.Icons)` uniforme (mismo path que el in-process
-  `RegisterComponents`).
-
-> Sin esto, el path codegen y el in-process divergen. Anotar como dependencia del svg PLAN.
-
----
-
-## Paso 4: Scanning de imports → `tinywasm/depfind`
-
-`import_scanner.go` (AST + go list) duplica lo que ya hace `tinywasm/depfind`
-(`GoDepFind`: análisis de dependencias, ownership, parseo de imports, caché).
-
-- **Preferido:** usar `depfind` para descubrir qué módulos/subpaquetes están en uso.
-- **Si hay gap de API** (depfind no expone un "ProjectImports(rootDir) map[string]bool"
-  equivalente): agregar ese método exportado a `depfind`, o como último recurso mantener un
-  scanner mínimo en ssr. Decidir al implementar (verificar la superficie de depfind primero).
-
-go.mod de ssr:
 ```
+module github.com/tinywasm/ssr
+
+go 1.25
+
 require (
-    github.com/tinywasm/assetmin v<nueva>
-    github.com/tinywasm/css v<...>
-    github.com/tinywasm/js v<...>
-    github.com/tinywasm/svg v<...>
-    github.com/tinywasm/depfind v<...>
-    github.com/tinywasm/fmt v<...>
+    github.com/tinywasm/assetmin v0.4.0
+    github.com/tinywasm/svg v0.0.3
+    github.com/tinywasm/fmt v0.23.10
 )
 ```
 
+Ejecutar `go mod tidy`.
+
 ---
 
-## Paso 5: Tests
+## Paso 4: Tests
 
-Mover los tests de extracción de assetmin a `ssr/tests/`:
-- `ssr_extract_subpackage_test.go` → `tests/extract_test.go` (`package ssr_test`).
-  Recordar: los fixtures escriben `css.go`/`js.go` (no `ssr.go`, eliminado).
-- Tests del codegen/invoke y del caché.
+El archivo `tests/extract_subpackage_original_test.go` ya existe en el repo con el test de
+regresión del bug de subpaquetes. Adaptarlo a `package ssr_test`:
 
-> Nota: aprovechar para verificar el fix de `/tmp` (ver memoria [[gotest-terminated-tmp-full]]):
-> los tests que generan `main.go` temporales deben limpiar sus tmpdirs.
+1. Cambiar `package assetmin` → `package ssr_test`
+2. Cambiar `import "github.com/tinywasm/assetmin"` → `import "github.com/tinywasm/ssr"`
+3. El test llama `extractSSRAssetsForModule` directamente (era internal) — reemplazar por
+   `e.ExtractModule(subDir)` donde `e = ssr.New(parentDir)` con `SetListModulesFn` mockeado.
+4. Eliminar referencias a `ssrGlobalCache`, `newSSRCache`, `Module` (tipos internos movidos).
+
+Agregar también en `tests/extract_test.go`:
+
+```go
+func TestExtractAll_Empty(t *testing.T) {
+    root := t.TempDir()
+    os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/demo\ngo 1.24\n"), 0644)
+    e := ssr.New(root)
+    e.SetListModulesFn(func(string) ([]string, error) { return []string{root}, nil })
+    all, err := e.ExtractAll()
+    if err != nil { t.Fatal(err) }
+    _ = all
+}
+
+func TestExtractModule_NoSSRFiles(t *testing.T) {
+    root := t.TempDir()
+    os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/demo\ngo 1.24\n"), 0644)
+    e := ssr.New(root)
+    a, err := e.ExtractModule(root)
+    if err != nil { t.Fatal(err) }
+    if a != nil { t.Error("expected nil for module with no SSR files") }
+}
+```
+
+---
+
+## Paso 5: Limpiar
+
+Eliminar los archivos `*_original.go` una vez que `invoke.go`, `extract.go`, `cache.go`,
+`scanner.go` estén completos y los tests pasen.
 
 ---
 
@@ -180,9 +255,4 @@ cd tinywasm/ssr
 go mod tidy
 go build ./...
 gotest
-
-cd tinywasm/assetmin && gotest
-cd tinywasm/app && gotest
 ```
-
-Ver `tinywasm/docs/MASTER_PLAN.md` para el orden global de ejecución.
