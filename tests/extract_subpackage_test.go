@@ -40,8 +40,8 @@ type Sub struct{}
 
 func (s *Sub) RenderCSS() stylesheet { return stylesheet(".sub{color:red}") }
 `
-	if err := os.WriteFile(filepath.Join(subDir, "ssr.go"), []byte(subSSR), 0644); err != nil {
-		t.Fatalf("write sub/ssr.go: %v", err)
+	if err := os.WriteFile(filepath.Join(subDir, "css.go"), []byte(subSSR), 0644); err != nil {
+		t.Fatalf("write sub/css.go: %v", err)
 	}
 
 	e := ssr.New(parentDir)

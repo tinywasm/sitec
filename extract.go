@@ -13,7 +13,7 @@ import (
 	"github.com/tinywasm/js"
 )
 
-var ssrSourceFiles = []string{"css.go", "js.go", "svg.go", "html.go", "ssr.go"}
+var ssrSourceFiles = []string{"css.go", "js.go", "svg.go", "html.go"}
 
 // extractAssetsForModule is the internal implementation that takes a resolved module.
 func extractAssetsForModule(m module, rootDir string, allModules []module, binCachePath string, cache *ssrCache, log func(...any), mu *sync.Mutex) (*assetmin.SSRAssets, error) {
