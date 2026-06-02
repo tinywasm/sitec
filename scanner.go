@@ -1,4 +1,4 @@
-package assetmin
+package ssr
 
 import (
 	"go/parser"
@@ -15,18 +15,18 @@ type fileImportCache struct {
 	imports map[string]bool
 }
 
-type importScanner struct {
+type scanner struct {
 	mu    sync.RWMutex
 	cache map[string]fileImportCache
 }
 
-func newImportScanner() *importScanner {
-	return &importScanner{
+func newScanner() *scanner {
+	return &scanner{
 		cache: make(map[string]fileImportCache),
 	}
 }
 
-func (s *importScanner) ScanProjectImports(rootDir string) (map[string]bool, error) {
+func (s *scanner) ScanProjectImports(rootDir string) (map[string]bool, error) {
 	allImports := make(map[string]bool)
 
 	// Files in rootDir
@@ -57,7 +57,7 @@ func (s *importScanner) ScanProjectImports(rootDir string) (map[string]bool, err
 	return allImports, nil
 }
 
-func (s *importScanner) scanDir(dir string, allImports map[string]bool) error {
+func (s *scanner) scanDir(dir string, allImports map[string]bool) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -81,7 +81,7 @@ func (s *importScanner) scanDir(dir string, allImports map[string]bool) error {
 	return nil
 }
 
-func (s *importScanner) scanFile(path string) (map[string]bool, error) {
+func (s *scanner) scanFile(path string) (map[string]bool, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, err

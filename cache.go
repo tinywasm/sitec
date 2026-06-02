@@ -1,19 +1,20 @@
-package assetmin
+package ssr
 
 import (
 	"crypto/md5"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/tinywasm/fmt"
 )
 
 // ssrCacheEntry holds a cached extraction result keyed by module hash set.
 type ssrCacheEntry struct {
-	hashSet string                             // Combined hash of all module Go files
+	hashSet string // Combined hash of all module Go files
 	results map[string]ssrCollectorOutput
 }
 
@@ -21,9 +22,6 @@ type ssrCacheEntry struct {
 type ssrCache struct {
 	entries map[string]*ssrCacheEntry
 }
-
-// Global cache for SSR extraction results
-var ssrGlobalCache = newSSRCache()
 
 // newSSRCache creates a new cache instance.
 func newSSRCache() *ssrCache {
@@ -33,16 +31,16 @@ func newSSRCache() *ssrCache {
 }
 
 // computeModuleHashSet computes a combined hash of all Go files in the module set.
-func computeModuleHashSet(modules []Module) (string, error) {
+func computeModuleHashSet(modules []module) (string, error) {
 	var filePaths []string
 
 	for _, m := range modules {
-		if m.Dir == "" {
+		if m.dir == "" {
 			continue
 		}
 
 		// Walk the module directory and collect all .go files (excluding *_test.go)
-		err := filepath.Walk(m.Dir, func(path string, info os.FileInfo, err error) error {
+		err := filepath.Walk(m.dir, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
@@ -53,7 +51,7 @@ func computeModuleHashSet(modules []Module) (string, error) {
 		})
 
 		if err != nil {
-			return "", fmt.Errorf("failed to walk module dir %s: %w", m.Dir, err)
+			return "", fmt.Err("failed to walk module dir", m.dir, err)
 		}
 	}
 
@@ -65,11 +63,11 @@ func computeModuleHashSet(modules []Module) (string, error) {
 	for _, filePath := range filePaths {
 		f, err := os.Open(filePath)
 		if err != nil {
-			return "", fmt.Errorf("failed to open file %s: %w", filePath, err)
+			return "", fmt.Err("failed to open file", filePath, err)
 		}
 		if _, err := io.Copy(h, f); err != nil {
 			f.Close()
-			return "", fmt.Errorf("failed to hash file %s: %w", filePath, err)
+			return "", fmt.Err("failed to hash file", filePath, err)
 		}
 		f.Close()
 	}

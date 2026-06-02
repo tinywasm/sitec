@@ -1,4 +1,4 @@
-package assetmin
+package ssr
 
 import (
 	"bytes"
@@ -7,19 +7,20 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sync"
+	"strings"
 	"text/template"
 
 	"github.com/tinywasm/fmt"
+	"github.com/tinywasm/svg"
 )
 
 // ssrCollectorOutput is the structure produced by the generated main.go
 type ssrCollectorOutput struct {
-	Root    string            `json:"root"`
-	Render  string            `json:"render"`
-	HTML    string            `json:"html"`
-	Scripts []ScriptOutput    `json:"scripts"`
-	Icons   map[string]string `json:"icons"`
+	Root    string      `json:"root"`
+	Render  string      `json:"render"`
+	HTML    string      `json:"html"`
+	Scripts []ScriptOutput `json:"scripts"`
+	Icons   *svg.Sprite `json:"icons"`
 }
 
 type ScriptOutput struct {
@@ -27,7 +28,7 @@ type ScriptOutput struct {
 	Content string `json:"content"`
 }
 
-type ModuleAlias struct {
+type moduleAlias struct {
 	Path         string
 	Alias        string
 	ReceiverType string
@@ -38,18 +39,15 @@ type ModuleAlias struct {
 	HasIcons     bool
 }
 
-func (m ModuleAlias) HasAnyFeature() bool {
+func (m moduleAlias) HasAnyFeature() bool {
 	return m.HasRoot || m.HasRender || m.HasHTML || m.HasJS || m.HasIcons
 }
 
-// Global mutex for SSR extraction protection
-var ssrExtractMu sync.Mutex
-
 // invokeSSRExtractorOnce generates a combined main.go, runs it once, and returns the aggregated output.
-// Results are cached by the hash of all module Go files.
-func invokeSSRExtractorOnce(rootDir string, modules []Module) (map[string]ssrCollectorOutput, error) {
-	tmpDir, err := os.MkdirTemp("", "assetmin-extract-*")
-	if err != nil {
+func invokeSSRExtractorOnce(rootDir string, modules []module) (map[string]ssrCollectorOutput, error) {
+	// Create a temporary hidden directory within rootDir to ensure we are in the module context.
+	tmpDir := filepath.Join(rootDir, ".ssr_extract")
+	if err := os.MkdirAll(tmpDir, 0755); err != nil {
 		return nil, fmt.Err("failed to create temp dir", err)
 	}
 	defer os.RemoveAll(tmpDir)
@@ -61,8 +59,8 @@ func invokeSSRExtractorOnce(rootDir string, modules []Module) (map[string]ssrCol
 	}
 
 	// Run go run main.go and capture JSON output
-	cmd := exec.Command("go", "run", mainFile)
-	cmd.Dir = rootDir
+	cmd := exec.Command("go", "run", "main.go")
+	cmd.Dir = tmpDir
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -80,7 +78,7 @@ func invokeSSRExtractorOnce(rootDir string, modules []Module) (map[string]ssrCol
 }
 
 // GenerateExtractorMain writes a main.go file that imports all modules and collects their assets.
-func GenerateExtractorMain(outputFile string, modules []Module) error {
+func GenerateExtractorMain(outputFile string, modules []module) error {
 	tmpl := template.Must(template.New("extractor").Parse(`package main
 
 import (
@@ -97,11 +95,11 @@ type script struct {
 }
 
 type ssr struct {
-	Root    string            ` + "`json:\"root\"`" + `
-	Render  string            ` + "`json:\"render\"`" + `
-	HTML    string            ` + "`json:\"html\"`" + `
-	Scripts []script          ` + "`json:\"scripts\"`" + `
-	Icons   map[string]string ` + "`json:\"icons\"`" + `
+	Root    string   ` + "`json:\"root\"`" + `
+	Render  string   ` + "`json:\"render\"`" + `
+	HTML    string   ` + "`json:\"html\"`" + `
+	Scripts []script ` + "`json:\"scripts\"`" + `
+	Icons   any      ` + "`json:\"icons\"`" + `
 }
 
 func main() {
@@ -145,9 +143,9 @@ func main() {
 `))
 
 	data := struct {
-		Modules []ModuleAlias
+		Modules []moduleAlias
 	}{
-		Modules: ModulesToAliases(modules),
+		Modules: modulesToAliases(modules),
 	}
 
 	f, err := os.Create(outputFile)
@@ -174,28 +172,29 @@ var (
 	reIconSvgFunc    = regexp.MustCompile(`(?m)^func IconSvg\(\)`)
 )
 
-// ModulesToAliases converts module information to alias mappings and detects features via regex.
-func ModulesToAliases(modules []Module) []ModuleAlias {
-	var aliases []ModuleAlias
+// modulesToAliases converts module information to alias mappings and detects features via regex.
+func modulesToAliases(modules []module) []moduleAlias {
+	var aliases []moduleAlias
 	for _, m := range modules {
-		parts := fmt.Convert(m.Path).Split("/")
-		alias := fmt.Convert(parts[len(parts)-1]).Replace("-", "_").String()
+		parts := strings.Split(m.path, "/")
+		alias := strings.ReplaceAll(parts[len(parts)-1], "-", "_")
 
 		// If alias starts with a digit or is empty, prepend an underscore to make it a valid Go identifier
 		if len(alias) == 0 || (alias[0] >= '0' && alias[0] <= '9') {
 			alias = "_" + alias
 		}
 
-		ma := ModuleAlias{
-			Path:  m.Path,
+
+		ma := moduleAlias{
+			Path:  m.path,
 			Alias: alias,
 		}
 
 		// Read all SSR source files to detect features
-		if m.Dir != "" {
+		if m.dir != "" {
 			var combinedContent []byte
 			for _, f := range ssrSourceFiles {
-				if content, err := os.ReadFile(filepath.Join(m.Dir, f)); err == nil {
+				if content, err := os.ReadFile(filepath.Join(m.dir, f)); err == nil {
 					combinedContent = append(combinedContent, content...)
 					combinedContent = append(combinedContent, '\n')
 				}
@@ -234,9 +233,6 @@ func detectReceiverType(content []byte) string {
 		if len(m) > 1 {
 			found := string(m[1])
 			if detected != "" && detected != found {
-				// Consistency check: we only support one receiver type per ssr.go
-				// In case of mismatch, we could return error or just the first one found.
-				// For now, let's stick to the first one.
 				continue
 			}
 			detected = found
