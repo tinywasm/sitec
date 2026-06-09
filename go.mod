@@ -4,7 +4,7 @@ go 1.25.2
 
 require (
 	github.com/tinywasm/assetmin v0.4.1
-	github.com/tinywasm/fmt v0.23.10
+	github.com/tinywasm/fmt v0.24.0
 	github.com/tinywasm/js v0.0.4
 	github.com/tinywasm/svg v0.0.5
 )
