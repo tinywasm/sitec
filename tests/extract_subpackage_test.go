@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/tinywasm/modfind"
 	"github.com/tinywasm/ssr"
 )
 
@@ -47,9 +48,9 @@ func (s *Sub) RenderCSS() stylesheet { return stylesheet(".sub{color:red}") }
 	e := ssr.New(parentDir)
 	e.SetLog(t.Log)
 	// Mock list modules to include the parent module only, simulating go list -m
-	e.SetListModulesFn(func(rootDir string) ([]string, error) {
-		return []string{"example.com/parent"}, nil
-	})
+	f := modfind.New()
+	f.Seed(parentDir, []modfind.Module{{Path: "example.com/parent", Dir: parentDir}})
+	e.SetFinder(f)
 
 	assets, err := e.ExtractModule(subDir)
 	if err != nil {

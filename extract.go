@@ -1,10 +1,7 @@
 package ssr
 
 import (
-	"bytes"
-	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
 
@@ -97,26 +94,3 @@ func containsModule(mods []module, m module) bool {
 	return false
 }
 
-// discoverModules discovers all modules in the project using go list.
-func discoverModules(rootDir string) ([]module, error) {
-	cmd := exec.Command("go", "list", "-m", "-json", "all")
-	cmd.Dir = rootDir
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Err("go list failed", err)
-	}
-
-	var modules []module
-	dec := json.NewDecoder(bytes.NewReader(out))
-	for dec.More() {
-		var m struct {
-			Path string
-			Dir  string
-		}
-		if err := dec.Decode(&m); err == nil && m.Dir != "" {
-			modules = append(modules, module{path: m.Path, dir: m.Dir})
-		}
-	}
-
-	return modules, nil
-}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/tinywasm/assetmin"
 	"github.com/tinywasm/fmt"
+	"github.com/tinywasm/modfind"
 )
 
 const cssModulePath = "tinywasm/css"
@@ -18,11 +19,11 @@ type module struct {
 }
 
 type Extractor struct {
-	rootDir       string
-	listModulesFn func(rootDir string) ([]string, error)
-	log           func(...any)
-	cache         *ssrCache
-	mu            sync.Mutex
+	rootDir string
+	finder  *modfind.Finder
+	log     func(...any)
+	cache   *ssrCache
+	mu      sync.Mutex
 }
 
 func New(rootDir string) *Extractor {
@@ -33,8 +34,8 @@ func New(rootDir string) *Extractor {
 	}
 }
 
-func (e *Extractor) SetLog(fn func(...any))                              { e.log = fn }
-func (e *Extractor) SetListModulesFn(fn func(string) ([]string, error)) { e.listModulesFn = fn }
+func (e *Extractor) SetLog(fn func(...any))     { e.log = fn }
+func (e *Extractor) SetFinder(f *modfind.Finder) { e.finder = f }
 
 func (e *Extractor) ExtractModule(moduleDir string) (*assetmin.SSRAssets, error) {
 	rootDir, err := findProjectRoot(moduleDir)
@@ -103,18 +104,18 @@ func (e *Extractor) ExtractAll() ([]*assetmin.SSRAssets, error) {
 }
 
 func (e *Extractor) discoverModules(rootDir string) ([]module, error) {
-	if e.listModulesFn != nil {
-		paths, err := e.listModulesFn(rootDir)
-		if err != nil {
-			return nil, err
-		}
-		var mods []module
-		for _, p := range paths {
-			mods = append(mods, module{path: p, dir: rootDir}) // Simplified for test
-		}
-		return mods, nil
+	if e.finder == nil {
+		e.finder = modfind.New()
 	}
-	return discoverModules(rootDir)
+	found, err := e.finder.Discover(rootDir)
+	if err != nil {
+		return nil, err
+	}
+	var mods []module
+	for _, m := range found {
+		mods = append(mods, module{path: m.Path, dir: m.Dir})
+	}
+	return mods, nil
 }
 
 func isRootDir(dir, rootDir string) bool {
