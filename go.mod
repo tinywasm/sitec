@@ -3,7 +3,7 @@ module github.com/tinywasm/ssr
 go 1.25.2
 
 require (
-	github.com/tinywasm/assetmin v0.4.2
+	github.com/tinywasm/assetmin v0.4.3
 	github.com/tinywasm/fmt v0.24.6
 	github.com/tinywasm/js v0.0.4
 	github.com/tinywasm/modfind v0.0.4
@@ -18,4 +18,5 @@ require (
 	github.com/tinywasm/dom v0.11.2 // indirect
 	github.com/tinywasm/fetch v0.1.24 // indirect
 	github.com/tinywasm/html v0.0.5 // indirect
+	github.com/tinywasm/router v0.1.1 // indirect
 )
