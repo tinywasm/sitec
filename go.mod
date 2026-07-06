@@ -4,7 +4,7 @@ go 1.25.2
 
 require (
 	github.com/tinywasm/assetmin v0.4.3
-	github.com/tinywasm/fmt v0.24.6
+	github.com/tinywasm/fmt v0.25.0
 	github.com/tinywasm/js v0.0.4
 	github.com/tinywasm/modfind v0.0.4
 	github.com/tinywasm/svg v0.1.0
@@ -18,5 +18,6 @@ require (
 	github.com/tinywasm/dom v0.11.2 // indirect
 	github.com/tinywasm/fetch v0.1.24 // indirect
 	github.com/tinywasm/html v0.0.5 // indirect
-	github.com/tinywasm/router v0.1.2 // indirect
+	github.com/tinywasm/model v0.0.2 // indirect
+	github.com/tinywasm/router v0.1.3 // indirect
 )
