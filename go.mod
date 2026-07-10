@@ -18,6 +18,6 @@ require (
 	github.com/tinywasm/dom v0.11.2 // indirect
 	github.com/tinywasm/fetch v0.1.24 // indirect
 	github.com/tinywasm/html v0.0.5 // indirect
-	github.com/tinywasm/model v0.0.7 // indirect
+	github.com/tinywasm/model v0.0.8 // indirect
 	github.com/tinywasm/router v0.1.4 // indirect
 )
