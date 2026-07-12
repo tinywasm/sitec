@@ -11,7 +11,7 @@ import (
 	"text/template"
 
 	"github.com/tinywasm/fmt"
-	"github.com/tinywasm/svg"
+	"github.com/tinywasm/svg/sprite"
 )
 
 // ssrCollectorOutput is the structure produced by the generated main.go
@@ -20,7 +20,7 @@ type ssrCollectorOutput struct {
 	Render  string      `json:"render"`
 	HTML    string      `json:"html"`
 	Scripts []ScriptOutput `json:"scripts"`
-	Icons   *svg.Sprite `json:"icons"`
+	Icons   *sprite.Sprite `json:"icons"`
 }
 
 type ScriptOutput struct {
@@ -157,6 +157,11 @@ func main() {
 	return tmpl.Execute(f, data)
 }
 
+// Feature detection matches on the METHOD NAME only — never on its return type or
+// the package that type comes from. That is what let IconSvg() switch from
+// *svg.Sprite to *sprite.Sprite without touching a single pattern here, and it is
+// why the generated main.go can keep `Icons any`: it is compiled standalone against
+// whatever the target module's own IconSvg() returns.
 var (
 	reRootCSS    = regexp.MustCompile(`(?m)^func \(\w+ \*?(\w+)\) RootCSS\(\)`)
 	reRenderCSS  = regexp.MustCompile(`(?m)^func \(\w+ \*?(\w+)\) RenderCSS\(\)`)
