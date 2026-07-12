@@ -19,5 +19,5 @@ require (
 	github.com/tinywasm/fetch v0.1.24 // indirect
 	github.com/tinywasm/html v0.0.5 // indirect
 	github.com/tinywasm/model v0.0.8 // indirect
-	github.com/tinywasm/router v0.1.4 // indirect
+	github.com/tinywasm/router v0.1.5 // indirect
 )
