@@ -3,6 +3,8 @@ package ssr
 import (
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 
 	"github.com/tinywasm/assetmin"
@@ -44,8 +46,11 @@ func extractAssetsForModule(m module, rootDir string, allModules []module, binCa
 	}
 	mu.Unlock()
 
-	// Extract the SSRAssets for the requested module
-	output, ok := cachedResults[m.path]
+	// Collect the results for the requested module AND for the packages inside it.
+	// The assets of an app live in its packages (config/, modules/x/), never at the
+	// module root — asking only for m.path returned nothing and the app shipped with
+	// an empty stylesheet.
+	output, ok := mergeResultsFor(m.path, cachedResults)
 	if !ok {
 		return nil, nil
 	}
@@ -66,6 +71,32 @@ func extractAssetsForModule(m module, rootDir string, allModules []module, binCa
 		HTML:       output.HTML,
 		Icons:      output.Icons,
 	}, nil
+}
+
+// mergeResultsFor gathers the module's own assets plus those of every package under
+// it, in a stable order so the emitted CSS does not shuffle between runs.
+func mergeResultsFor(modulePath string, results map[string]ssrCollectorOutput) (ssrCollectorOutput, bool) {
+	paths := make([]string, 0, len(results))
+	for p := range results {
+		if p == modulePath || strings.HasPrefix(p, modulePath+"/") {
+			paths = append(paths, p)
+		}
+	}
+	if len(paths) == 0 {
+		return ssrCollectorOutput{}, false
+	}
+	sort.Strings(paths)
+
+	var merged ssrCollectorOutput
+	for _, p := range paths {
+		out := results[p]
+		merged.Root += out.Root
+		merged.Render += out.Render
+		merged.HTML += out.HTML
+		merged.Scripts = append(merged.Scripts, out.Scripts...)
+		merged.Icons = merged.Icons.Merge(out.Icons)
+	}
+	return merged, true
 }
 
 // findProjectRoot finds the project root by locating the nearest go.mod file above or at startDir.

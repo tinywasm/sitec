@@ -3,6 +3,7 @@ package ssr
 import (
 	"bytes"
 	"encoding/json"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -177,10 +178,75 @@ var (
 	reIconSvgFunc    = regexp.MustCompile(`(?m)^func IconSvg\(\)`)
 )
 
+// expandToSSRPackages turns each module into the PACKAGES inside it that actually
+// declare SSR sources.
+//
+// A real app keeps its RootCSS() in config/ and its views in modules/x/ — never at
+// the module root. Reading the source files only at the module dir found nothing, so
+// the generated main.go never called RootCSS(): the app shipped with an empty
+// style.css and no icons, and nothing failed loudly.
+//
+// Only packages that carry an SSR source file are returned. That matters: the module
+// root is usually `package main`, and a generated main.go cannot import it.
+func expandToSSRPackages(modules []module) []module {
+	var out []module
+	seen := make(map[string]bool)
+
+	for _, m := range modules {
+		if m.dir == "" {
+			if !seen[m.path] {
+				seen[m.path] = true
+				out = append(out, m)
+			}
+			continue
+		}
+
+		filepath.WalkDir(m.dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || !d.IsDir() {
+				return nil
+			}
+			if path != m.dir {
+				name := d.Name()
+				if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") ||
+					name == "vendor" || name == "testdata" || name == "node_modules" {
+					return filepath.SkipDir
+				}
+				// A nested go.mod is its own module: it comes from the finder, not from here.
+				if _, err := os.Stat(filepath.Join(path, "go.mod")); err == nil {
+					return filepath.SkipDir
+				}
+			}
+			if !hasSSRSource(path) {
+				return nil
+			}
+
+			pkgPath := m.path
+			if rel, err := filepath.Rel(m.dir, path); err == nil && rel != "." {
+				pkgPath = m.path + "/" + filepath.ToSlash(rel)
+			}
+			if !seen[pkgPath] {
+				seen[pkgPath] = true
+				out = append(out, module{path: pkgPath, dir: path})
+			}
+			return nil
+		})
+	}
+	return out
+}
+
+func hasSSRSource(dir string) bool {
+	for _, f := range ssrSourceFiles {
+		if _, err := os.Stat(filepath.Join(dir, f)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // modulesToAliases converts module information to alias mappings and detects features via regex.
 func modulesToAliases(modules []module) []moduleAlias {
 	var aliases []moduleAlias
-	for _, m := range modules {
+	for _, m := range expandToSSRPackages(modules) {
 		parts := strings.Split(m.path, "/")
 		alias := strings.ReplaceAll(parts[len(parts)-1], "-", "_")
 
