@@ -17,7 +17,7 @@ require (
 	github.com/tinywasm/css v0.1.4 // indirect
 	github.com/tinywasm/dom v0.11.2 // indirect
 	github.com/tinywasm/fetch v0.1.24 // indirect
-	github.com/tinywasm/html v0.0.5 // indirect
+	github.com/tinywasm/html v0.0.6 // indirect
 	github.com/tinywasm/json v0.5.11 // indirect
 	github.com/tinywasm/model v0.0.12 // indirect
 	github.com/tinywasm/router v0.1.9 // indirect
