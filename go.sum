@@ -26,7 +26,7 @@ github.com/tinywasm/model v0.0.15 h1:EpDMgfTq83PzSBVkDU2Ug6B1XRvsk0Ki+scJSf9chfU
 github.com/tinywasm/model v0.0.15/go.mod h1:wkYZLW6CWVrlx5TiLEBL71KgDxhjUcFtY3KXZKpkCXA=
 github.com/tinywasm/modfind v0.0.4 h1:g7EFZArEftll9pxg5VAToIltVnEMRWfE+KEjPJpsNgY=
 github.com/tinywasm/modfind v0.0.4/go.mod h1:g1ZkkxCZ7vwDI5O23AMWlPJy4ctRWfWKZX/y+KMH1FM=
-github.com/tinywasm/router v0.1.11 h1:oXNXzg9tTdtCFbJTmzGXv3oIksDvlsUkNb55US8XVHg=
-github.com/tinywasm/router v0.1.11/go.mod h1:HM/9YKk0c8JKdPPCNLVGVpB48k6vXfhl2Q9C+tVujSo=
+github.com/tinywasm/router v0.1.12 h1:lf39WDAfAMVfTRg5HlgoLpyaC2R5oOxDPqFBsmBrTDg=
+github.com/tinywasm/router v0.1.12/go.mod h1:JYL/YiErI7bbkg1suosA1Et8Fv1jxrFY/dLqvjq/flc=
 github.com/tinywasm/svg v0.1.3 h1:UIvWjctM3Bdxf/awDKHf2xhM2h1CB3PmK7tNJm1xAO8=
 github.com/tinywasm/svg v0.1.3/go.mod h1:kLzyRzr4ih5LTGhW86J49KlE32okOZhZ5hsLdl6zWzc=
