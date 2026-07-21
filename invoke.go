@@ -15,8 +15,8 @@ import (
 	"github.com/tinywasm/svg/sprite"
 )
 
-// ssrCollectorOutput is the structure produced by the generated main.go
-type ssrCollectorOutput struct {
+// CollectorOutput is the structure produced by the generated main.go
+type CollectorOutput struct {
 	Root    string      `json:"root"`
 	Render  string      `json:"render"`
 	HTML    string      `json:"html"`
@@ -45,7 +45,7 @@ func (m moduleAlias) HasAnyFeature() bool {
 }
 
 // invokeSSRExtractorOnce generates a combined main.go, runs it once, and returns the aggregated output.
-func invokeSSRExtractorOnce(rootDir string, modules []module) (map[string]ssrCollectorOutput, error) {
+func invokeSSRExtractorOnce(rootDir string, modules []module) (map[string]CollectorOutput, error) {
 	// Create a temporary hidden directory within rootDir to ensure we are in the module context.
 	tmpDir := filepath.Join(rootDir, ".ssr_extract")
 	if err := os.MkdirAll(tmpDir, 0755); err != nil {
@@ -70,7 +70,7 @@ func invokeSSRExtractorOnce(rootDir string, modules []module) (map[string]ssrCol
 	}
 
 	// Parse the JSON output
-	var results map[string]ssrCollectorOutput
+	var results map[string]CollectorOutput
 	if err := json.Unmarshal(out, &results); err != nil {
 		return nil, fmt.Err("failed to parse extractor output", err)
 	}

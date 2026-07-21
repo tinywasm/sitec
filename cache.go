@@ -15,7 +15,7 @@ import (
 // ssrCacheEntry holds a cached extraction result keyed by module hash set.
 type ssrCacheEntry struct {
 	hashSet string // Combined hash of all module Go files
-	results map[string]ssrCollectorOutput
+	results map[string]CollectorOutput
 }
 
 // ssrCache manages content-hash based caching for SSR asset extraction.
@@ -76,7 +76,7 @@ func computeModuleHashSet(modules []module) (string, error) {
 }
 
 // get retrieves cached results if the module hash set matches.
-func (c *ssrCache) get(hashSet string) (map[string]ssrCollectorOutput, bool) {
+func (c *ssrCache) get(hashSet string) (map[string]CollectorOutput, bool) {
 	entry, ok := c.entries[hashSet]
 	if !ok {
 		return nil, false
@@ -85,7 +85,7 @@ func (c *ssrCache) get(hashSet string) (map[string]ssrCollectorOutput, bool) {
 }
 
 // set caches extraction results for a module hash set.
-func (c *ssrCache) set(hashSet string, results map[string]ssrCollectorOutput) {
+func (c *ssrCache) set(hashSet string, results map[string]CollectorOutput) {
 	c.entries[hashSet] = &ssrCacheEntry{
 		hashSet: hashSet,
 		results: results,
