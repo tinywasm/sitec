@@ -1,5 +1,7 @@
 ---
 PLAN: "fix: stop mergeResultsFor mutating cached sprites so module icons are not lost"
+STATUS: running
+SESSION: 16764902161277812403
 ---
 
 # PLAN — SSR icon-loss bug (cached sprite mutation)
