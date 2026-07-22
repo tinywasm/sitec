@@ -1,7 +1,8 @@
 ---
 PLAN: "fix: stop mergeResultsFor mutating cached sprites so module icons are not lost"
-STATUS: running
+STATUS: review
 SESSION: 16764902161277812403
+PR: https://github.com/tinywasm/ssr/pull/3
 ---
 
 # PLAN — SSR icon-loss bug (cached sprite mutation)

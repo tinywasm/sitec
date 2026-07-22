@@ -10,6 +10,7 @@ import (
 	"github.com/tinywasm/assetmin"
 	"github.com/tinywasm/fmt"
 	"github.com/tinywasm/js"
+	"github.com/tinywasm/svg/sprite"
 )
 
 var ssrSourceFiles = []string{"css.go", "js.go", "svg.go", "html.go"}
@@ -50,7 +51,7 @@ func extractAssetsForModule(m module, rootDir string, allModules []module, binCa
 	// The assets of an app live in its packages (config/, modules/x/), never at the
 	// module root — asking only for m.path returned nothing and the app shipped with
 	// an empty stylesheet.
-	output, ok := mergeResultsFor(m.path, cachedResults)
+	output, ok := MergeResultsFor(m.path, cachedResults)
 	if !ok {
 		return nil, nil
 	}
@@ -73,9 +74,9 @@ func extractAssetsForModule(m module, rootDir string, allModules []module, binCa
 	}, nil
 }
 
-// mergeResultsFor gathers the module's own assets plus those of every package under
+// MergeResultsFor gathers the module's own assets plus those of every package under
 // it, in a stable order so the emitted CSS does not shuffle between runs.
-func mergeResultsFor(modulePath string, results map[string]ssrCollectorOutput) (ssrCollectorOutput, bool) {
+func MergeResultsFor(modulePath string, results map[string]CollectorOutput) (CollectorOutput, bool) {
 	paths := make([]string, 0, len(results))
 	for p := range results {
 		if p == modulePath || strings.HasPrefix(p, modulePath+"/") {
@@ -83,18 +84,19 @@ func mergeResultsFor(modulePath string, results map[string]ssrCollectorOutput) (
 		}
 	}
 	if len(paths) == 0 {
-		return ssrCollectorOutput{}, false
+		return CollectorOutput{}, false
 	}
 	sort.Strings(paths)
 
-	var merged ssrCollectorOutput
+	var merged CollectorOutput
+	merged.Icons = sprite.NewSprite()
 	for _, p := range paths {
 		out := results[p]
 		merged.Root += out.Root
 		merged.Render += out.Render
 		merged.HTML += out.HTML
 		merged.Scripts = append(merged.Scripts, out.Scripts...)
-		merged.Icons = merged.Icons.Merge(out.Icons)
+		merged.Icons.Merge(out.Icons)
 	}
 	return merged, true
 }
