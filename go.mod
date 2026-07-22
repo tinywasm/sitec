@@ -7,7 +7,7 @@ require (
 	github.com/tinywasm/fmt v0.25.5
 	github.com/tinywasm/js v0.0.4
 	github.com/tinywasm/modfind v0.0.4
-	github.com/tinywasm/svg v0.1.3
+	github.com/tinywasm/svg v0.1.8
 )
 
 require (
