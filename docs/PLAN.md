@@ -3,6 +3,10 @@
 Fecha: 2026-07-24
 Estado: propuesto — pendiente de revisión
 
+Documentos relacionados (bugs independientes, no confundir):
+- `docs/PLAN_ASSETMIN.md` — endurecimiento opcional en `tinywasm/assetmin` (no requerido para cerrar el síntoma; el fix de este documento basta).
+- `docs/PLAN_CORE.md` — bug DISTINTO en `tinywasm/core`: un reinicio disparado vía MCP puede arrancar el proyecto desde el directorio equivocado (raíz del módulo en vez del subpaquete original), lo que también se percibe como "renderizado distinto tras reiniciar" pero no tiene relación con el CSS ni con `ssr`/`assetmin`.
+
 ## 1. Síntoma reportado
 
 Al usar `tinywasm/ssr` desde una aplicación consumidora (vía `assetmin`), a veces
@@ -89,8 +93,35 @@ El flujo con bug:
 **Conclusión de atribución**: el bug NO está en `tinywasm/css`. Es un contrato
 inconsistente entre `ssr.ExtractAll` y `ssr.ExtractModule`, consumido por
 `assetmin.routeAssets`. La corrección principal corresponde a **este repo
-(ssr)**; hay endurecimiento complementario recomendado en `assetmin` (ver
-`docs/PLAN_ASSETMIN.md`, repo no accesible en esta sesión).
+(ssr)**; hay endurecimiento complementario opcional en `assetmin` (ver
+`docs/PLAN_ASSETMIN.md`).
+
+### 2.3 Corroboración en el consumidor real: `tinywasm/core`
+
+`tinywasm/core` (el binario `tinywasm`, módulo Go `github.com/tinywasm/app`) es
+exactamente el tipo de consumidor descrito en 2.2, verificado leyendo su código
+(clonado localmente, solo lectura, en esta misma sesión):
+
+- `section-build.go:255-259` — `ssrExtractor := ssr.New(h.RootDir)` +
+  `h.AssetsHandler.SetSSRExtractor(ssrExtractor)`: cableado idéntico al que
+  reproduce `tests/consumer_hot_reload_test.go`.
+- `section-build.go:283-286` — el watcher SSR
+  (`assetmin.SSRFileWatcher.NewFileEvent`, en `assetmin@v0.4.15/ssr_watcher.go`)
+  llama `w.am.ReloadSSRModule(filepath.Dir(filePath))` — literalmente el
+  directorio del archivo `css.go` editado. En una app real de tinywasm el CSS de
+  cada vista vive en subpaquetes (`modules/x/css.go`, `config/css.go`, nunca en
+  la raíz del módulo — ver también `extract_module_root_test.go` en este mismo
+  repo), así que **cada edición de un componente dispara exactamente el
+  `ExtractModule(subpackageDir)` que hoy sintetiza una clave/slot distinta**.
+- `section-build.go:276` (`ReloadSSRModule(h.RootDir)` síncrono al arrancar) +
+  `section-build.go:346` (`LoadSSRModules()` asíncrono, en background) confirman
+  también el escenario de carrera de `TestConsumerStartup_ReloadRacingInitialLoad`:
+  el watcher queda activo antes de que termine el escaneo asíncrono de fondo.
+
+Confirmado: `tinywasm/core` es un consumidor real que golpea este bug en su uso
+normal (cualquier edición de CSS de un componente tras el arranque), no un
+escenario sintético. El fix del Paso 1 de este documento lo resuelve sin
+cambios en `core`.
 
 ## 3. Plan de corrección (en este repo)
 
