@@ -65,4 +65,10 @@ func (s *Sub) RenderCSS() stylesheet { return stylesheet(".sub{color:red}") }
 		t.Fatalf("subpackage CSS not extracted\n  want: %q\n  got:  %q\n  module: %q",
 			want, assets.CSS, assets.ModuleName)
 	}
+
+	const wantModuleName = "example.com/parent"
+	if assets.ModuleName != wantModuleName {
+		t.Fatalf("expected ModuleName to be resolved to owner module\n  want: %q\n  got:  %q",
+			wantModuleName, assets.ModuleName)
+	}
 }
