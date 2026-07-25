@@ -2,7 +2,6 @@ package ssr
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -56,15 +55,10 @@ func (e *Extractor) ExtractModule(moduleDir string) (*assetmin.SSRAssets, error)
 	}
 
 	if target.dir == "" {
-		// synthesize module for subpackage
-		// first, find which module contains this directory
+		// resolve to the containing module for subpackages
 		for _, m := range modules {
 			if strings.HasPrefix(moduleDir, m.dir+string(os.PathSeparator)) {
-				rel, _ := filepath.Rel(m.dir, moduleDir)
-				target = module{
-					path: filepath.ToSlash(filepath.Join(m.path, rel)),
-					dir:  moduleDir,
-				}
+				target = m
 				break
 			}
 		}
@@ -77,7 +71,7 @@ func (e *Extractor) ExtractModule(moduleDir string) (*assetmin.SSRAssets, error)
 	if err != nil || a == nil {
 		return nil, err
 	}
-	a.IsRoot = isRootDir(moduleDir, e.rootDir)
+	a.IsRoot = isRootDir(target.dir, e.rootDir)
 	a.IsFramework = isFrameworkModule(target.path)
 	return a, nil
 }
