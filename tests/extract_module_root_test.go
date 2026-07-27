@@ -4,6 +4,7 @@ package ssr_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,19 +13,6 @@ import (
 	"github.com/tinywasm/ssr"
 )
 
-// TestExtractModule_RootWithSSRInSubpackages reproduce un bug real: una app cuyo
-// css.go/svg.go viven en SUBPAQUETES (config/, modules/x/) y no en la raíz del
-// módulo se quedaba SIN CSS y SIN iconos — `web/public/style.css` se escribía con 0
-// bytes y la página salía sin estilos.
-//
-// La detección de features leía los ssrSourceFiles SOLO en la raíz del módulo
-// (`os.ReadFile(filepath.Join(m.dir, f))`), así que para un módulo cuyo css.go está
-// en config/ no encontraba nada: HasRoot=false, y el main.go generado nunca llamaba
-// a RootCSS().
-//
-// El test hermano (TestExtractModule_Subpackage) pasa el directorio DEL SUBPAQUETE y
-// pasaba en verde, tapando el agujero: nadie probaba lo que hace `tinywasm/app`, que
-// llama a ReloadSSRModule con la RAÍZ del proyecto.
 func TestExtractModule_RootWithSSRInSubpackages(t *testing.T) {
 	root := t.TempDir()
 
@@ -39,19 +27,48 @@ func TestExtractModule_RootWithSSRInSubpackages(t *testing.T) {
 		}
 	}
 
-	write("go.mod", "module example.com/app\n\ngo 1.24\n")
+	write("go.mod", `module example.com/app
+
+go 1.24
+
+require (
+	github.com/tinywasm/widget v0.1.0
+	github.com/tinywasm/js v0.0.4
+	github.com/tinywasm/svg v0.1.8
+)
+`)
 	write("main.go", "package main\n\nfunc main() {}\n")
+
+	// Dummy imports to prevent go mod tidy from pruning the dependencies
+	write("config/dummy_imports.go", `package config
+
+import (
+	_ "github.com/tinywasm/js"
+	_ "github.com/tinywasm/svg/sprite"
+)
+`)
 
 	// El CSS vive en config/, no en la raíz — como en una app real.
 	write("config/css.go", `//go:build !wasm
 
 package config
 
-type stylesheet string
+import (
+	"github.com/tinywasm/widget"
+	"github.com/tinywasm/widget/style"
+)
 
-func (s stylesheet) String() string { return string(s) }
+type Config struct{}
+func (c *Config) WidgetName() widget.Name { return "config" }
+func (c *Config) WidgetKind() widget.Kind { return widget.Region }
 
-func RootCSS() stylesheet { return stylesheet(":root{--brand:red}") }
+func (c *Config) Style() *style.Sheet {
+	return style.Of("config").Part("body", style.On(style.Page))
+}
+
+func SSR() []widget.Widget {
+	return []widget.Widget{&Config{}}
+}
 `)
 
 	// Y un módulo de dominio aporta su propio CSS, un nivel más abajo.
@@ -59,14 +76,30 @@ func RootCSS() stylesheet { return stylesheet(":root{--brand:red}") }
 
 package catalog
 
-type stylesheet string
-
-func (s stylesheet) String() string { return string(s) }
+import (
+	"github.com/tinywasm/widget"
+	"github.com/tinywasm/widget/style"
+)
 
 type Catalog struct{}
+func (c *Catalog) WidgetName() widget.Name { return "catalog" }
+func (c *Catalog) WidgetKind() widget.Kind { return widget.Region }
 
-func (c *Catalog) RenderCSS() stylesheet { return stylesheet(".catalog{display:grid}") }
+func (c *Catalog) Style() *style.Sheet {
+	return style.Of("catalog").Part("body", style.On(style.Page))
+}
+
+func SSR() []widget.Widget {
+	return []widget.Widget{&Catalog{}}
+}
 `)
+
+	// Tidy the module
+	cmd := exec.Command("go", "mod", "tidy")
+	cmd.Dir = root
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("go mod tidy failed: %v\nOutput: %s", err, string(out))
+	}
 
 	e := ssr.New(root)
 	e.SetLog(t.Log)
@@ -83,11 +116,10 @@ func (c *Catalog) RenderCSS() stylesheet { return stylesheet(".catalog{display:g
 		t.Fatal("ExtractModule devolvió nil: la app se queda sin CSS")
 	}
 
-	if !strings.Contains(assets.RootCSS, "--brand:red") {
-		t.Errorf("RootCSS de config/ no extraído.\n  got RootCSS: %q\n"+
-			"La hoja de estilos se escribe vacía y la página se renderiza sin estilos.", assets.RootCSS)
+	if !strings.Contains(assets.CSS, ".config") {
+		t.Errorf("CSS de config/ no extraído.\n  got CSS: %q", assets.CSS)
 	}
-	if !strings.Contains(assets.CSS, ".catalog{display:grid}") {
+	if !strings.Contains(assets.CSS, ".catalog") {
 		t.Errorf("CSS de modules/catalog/ no extraído.\n  got CSS: %q", assets.CSS)
 	}
 }

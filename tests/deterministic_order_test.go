@@ -4,7 +4,9 @@ package ssr_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tinywasm/modfind"
@@ -15,7 +17,7 @@ import (
 //
 //	root/
 //	  go.mod            (module example.com/app)
-//	  config/css.go     (RootCSS + RenderCSS)
+//	  config/css.go     (config widget style)
 //	  modules/alpha/css.go
 //	  modules/beta/css.go
 //	  modules/zeta/css.go
@@ -37,40 +39,82 @@ func writeFixtureApp(t *testing.T) string {
 		}
 	}
 
-	write("go.mod", "module example.com/app\n\ngo 1.24\n")
+	write("go.mod", `module example.com/app
+
+go 1.24
+
+require (
+	github.com/tinywasm/widget v0.1.0
+	github.com/tinywasm/js v0.0.4
+	github.com/tinywasm/svg v0.1.8
+)
+`)
+
+	// Dummy imports to prevent go mod tidy from pruning the dependencies
+	write("config/dummy_imports.go", `package config
+
+import (
+	_ "github.com/tinywasm/js"
+	_ "github.com/tinywasm/svg/sprite"
+)
+`)
 
 	write("config/css.go", `//go:build !wasm
 
 package config
 
-type stylesheet string
-
-func (s stylesheet) String() string { return string(s) }
+import (
+	"github.com/tinywasm/widget"
+	"github.com/tinywasm/widget/style"
+)
 
 type Theme struct{}
+func (t *Theme) WidgetName() widget.Name { return "config" }
+func (t *Theme) WidgetKind() widget.Kind { return widget.Region }
 
-func (t *Theme) RootCSS() stylesheet   { return stylesheet(":root{--brand:#00ADD8}") }
-func (t *Theme) RenderCSS() stylesheet { return stylesheet(".config{order:0}") }
+func (t *Theme) Style() *style.Sheet {
+	return style.Of("config").Part("body", style.On(style.Page))
+}
+
+func SSR() []widget.Widget {
+	return []widget.Widget{&Theme{}}
+}
 `)
 
-	componentCSS := func(pkg, rule string) string {
+	componentCSS := func(pkg, name string) string {
 		return `//go:build !wasm
 
 package ` + pkg + `
 
-type stylesheet string
-
-func (s stylesheet) String() string { return string(s) }
+import (
+	"github.com/tinywasm/widget"
+	"github.com/tinywasm/widget/style"
+)
 
 type Component struct{}
+func (c *Component) WidgetName() widget.Name { return "` + name + `" }
+func (c *Component) WidgetKind() widget.Kind { return widget.Region }
 
-func (c *Component) RenderCSS() stylesheet { return stylesheet("` + rule + `") }
+func (c *Component) Style() *style.Sheet {
+	return style.Of("` + name + `").Part("body", style.On(style.Page))
+}
+
+func SSR() []widget.Widget {
+	return []widget.Widget{&Component{}}
+}
 `
 	}
 
-	write("modules/alpha/css.go", componentCSS("alpha", ".alpha{order:1}"))
-	write("modules/beta/css.go", componentCSS("beta", ".beta{color:blue}"))
-	write("modules/zeta/css.go", componentCSS("zeta", ".zeta{order:3}"))
+	write("modules/alpha/css.go", componentCSS("alpha", "alpha"))
+	write("modules/beta/css.go", componentCSS("beta", "beta"))
+	write("modules/zeta/css.go", componentCSS("zeta", "zeta"))
+
+	// Run go mod tidy in the temporary directory to resolve dependencies and generate go.sum
+	cmd := exec.Command("go", "mod", "tidy")
+	cmd.Dir = root
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("go mod tidy failed: %v\nOutput: %s", err, string(out))
+	}
 
 	return root
 }
@@ -123,13 +167,22 @@ func TestExtract_DeterministicAcrossRuns(t *testing.T) {
 
 	// The merge contract: packages combine sorted by import path
 	// (config < modules/alpha < modules/beta < modules/zeta).
-	const wantCSS = ".config{order:0}.alpha{order:1}.beta{color:blue}.zeta{order:3}"
 	e := newSeededExtractor(root)
 	assets, err := e.ExtractModule(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if assets.CSS != wantCSS {
-		t.Fatalf("merged CSS order broke the sorted-by-path contract\n want: %q\n got:  %q", wantCSS, assets.CSS)
+
+	iConfig := strings.Index(assets.CSS, "config")
+	iAlpha := strings.Index(assets.CSS, "alpha")
+	iBeta := strings.Index(assets.CSS, "beta")
+	iZeta := strings.Index(assets.CSS, "zeta")
+
+	if iConfig == -1 || iAlpha == -1 || iBeta == -1 || iZeta == -1 {
+		t.Fatalf("missing one of config, alpha, beta, zeta in CSS: %q", assets.CSS)
+	}
+
+	if !(iConfig < iAlpha && iAlpha < iBeta && iBeta < iZeta) {
+		t.Fatalf("merged CSS order broke the sorted-by-path contract: config < alpha < beta < zeta\n got CSS:\n%s", assets.CSS)
 	}
 }

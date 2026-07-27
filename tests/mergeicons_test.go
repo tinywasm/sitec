@@ -40,7 +40,7 @@ func spriteWith(prefix string, n int) *sprite.Sprite {
 // symbols stop appearing while platformd's remain.
 func TestMergeResultsFor_DoesNotMutateCachedSprites(t *testing.T) {
 	// One module "app" with two packages, plus an unrelated module.
-	results := map[string]ssr.CollectorOutput{
+	results := map[string]ssr.Bundle{
 		"app/crudview":   {Icons: spriteWith("cv", 3)}, // sorts first under "app"
 		"app/platformd":  {Icons: spriteWith("pd", 3)},
 		"lib/targetlist": {Icons: spriteWith("tl", 1)},

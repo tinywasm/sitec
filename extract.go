@@ -34,16 +34,22 @@ func extractAssetsForModule(m module, rootDir string, allModules []module, binCa
 	mu.Lock()
 	cachedResults, hasCached := cache.get(hashKey)
 	if !hasCached {
-		// Do compile-and-invoke
-		results, err := invokeSSRExtractorOnce(rootDir, modulesForExtract)
-		if err != nil {
-			mu.Unlock()
-			return nil, err
+		// Optimization: if there are absolutely no packages with SSR sources,
+		// we don't compile/run anything. We just return an empty map.
+		if len(expandToSSRPackages(modulesForExtract)) == 0 {
+			cachedResults = make(map[string]Bundle)
+		} else {
+			// Do compile-and-invoke
+			results, err := invokeSSRExtractorOnce(rootDir, modulesForExtract)
+			if err != nil {
+				mu.Unlock()
+				return nil, err
+			}
+			cachedResults = results
 		}
 
 		// Cache the results
-		cache.set(hashKey, results)
-		cachedResults = results
+		cache.set(hashKey, cachedResults)
 	}
 	mu.Unlock()
 
@@ -76,7 +82,7 @@ func extractAssetsForModule(m module, rootDir string, allModules []module, binCa
 
 // MergeResultsFor gathers the module's own assets plus those of every package under
 // it, in a stable order so the emitted CSS does not shuffle between runs.
-func MergeResultsFor(modulePath string, results map[string]CollectorOutput) (CollectorOutput, bool) {
+func MergeResultsFor(modulePath string, results map[string]Bundle) (Bundle, bool) {
 	paths := make([]string, 0, len(results))
 	for p := range results {
 		if p == modulePath || strings.HasPrefix(p, modulePath+"/") {
@@ -84,11 +90,11 @@ func MergeResultsFor(modulePath string, results map[string]CollectorOutput) (Col
 		}
 	}
 	if len(paths) == 0 {
-		return CollectorOutput{}, false
+		return Bundle{}, false
 	}
 	sort.Strings(paths)
 
-	var merged CollectorOutput
+	var merged Bundle
 	merged.Icons = sprite.NewSprite()
 	for _, p := range paths {
 		out := results[p]
@@ -126,4 +132,3 @@ func containsModule(mods []module, m module) bool {
 	}
 	return false
 }
-

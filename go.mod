@@ -8,13 +8,14 @@ require (
 	github.com/tinywasm/js v0.0.4
 	github.com/tinywasm/modfind v0.0.4
 	github.com/tinywasm/svg v0.1.8
+	github.com/tinywasm/widget v0.1.0
 )
 
 require (
 	github.com/tdewolff/minify/v2 v2.24.8 // indirect
 	github.com/tdewolff/parse/v2 v2.8.5 // indirect
 	github.com/tinywasm/context v0.0.18 // indirect
-	github.com/tinywasm/css v0.1.4 // indirect
+	github.com/tinywasm/css v0.2.0 // indirect
 	github.com/tinywasm/dom v0.11.4 // indirect
 	github.com/tinywasm/fetch v0.1.24 // indirect
 	github.com/tinywasm/html v0.0.6 // indirect

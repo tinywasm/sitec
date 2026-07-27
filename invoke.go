@@ -7,45 +7,19 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"text/template"
 
 	"github.com/tinywasm/fmt"
-	"github.com/tinywasm/svg/sprite"
 )
 
-// CollectorOutput is the structure produced by the generated main.go
-type CollectorOutput struct {
-	Root    string      `json:"root"`
-	Render  string      `json:"render"`
-	HTML    string      `json:"html"`
-	Scripts []ScriptOutput `json:"scripts"`
-	Icons   *sprite.Sprite `json:"icons"`
-}
-
-type ScriptOutput struct {
-	Name    string `json:"name"`
-	Content string `json:"content"`
-}
-
 type moduleAlias struct {
-	Path         string
-	Alias        string
-	ReceiverType string
-	HasRoot      bool
-	HasRender    bool
-	HasHTML      bool
-	HasJS        bool
-	HasIcons     bool
-}
-
-func (m moduleAlias) HasAnyFeature() bool {
-	return m.HasRoot || m.HasRender || m.HasHTML || m.HasJS || m.HasIcons
+	Path  string
+	Alias string
 }
 
 // invokeSSRExtractorOnce generates a combined main.go, runs it once, and returns the aggregated output.
-func invokeSSRExtractorOnce(rootDir string, modules []module) (map[string]CollectorOutput, error) {
+func invokeSSRExtractorOnce(rootDir string, modules []module) (map[string]Bundle, error) {
 	// Create a temporary hidden directory within rootDir to ensure we are in the module context.
 	tmpDir := filepath.Join(rootDir, ".ssr_extract")
 	if err := os.MkdirAll(tmpDir, 0755); err != nil {
@@ -70,7 +44,7 @@ func invokeSSRExtractorOnce(rootDir string, modules []module) (map[string]Collec
 	}
 
 	// Parse the JSON output
-	var results map[string]CollectorOutput
+	var results map[string]Bundle
 	if err := json.Unmarshal(out, &results); err != nil {
 		return nil, fmt.Err("failed to parse extractor output", err)
 	}
@@ -85,9 +59,20 @@ func GenerateExtractorMain(outputFile string, modules []module) error {
 import (
 	"encoding/json"
 	"os"
+	"github.com/tinywasm/widget"
+	"github.com/tinywasm/widget/style"
+	"github.com/tinywasm/js"
+	"github.com/tinywasm/svg/sprite"
 	{{range .Modules}}
-	{{if .HasAnyFeature}}{{.Alias}} "{{.Path}}"{{end}}
+	{{.Alias}} "{{.Path}}"
 	{{end}}
+)
+
+var (
+	_ = widget.Region
+	_ = style.RadiusNone
+	_ = js.RuntimeGo
+	_ = sprite.Path
 )
 
 type script struct {
@@ -103,41 +88,60 @@ type ssr struct {
 	Icons   any      ` + "`json:\"icons\"`" + `
 }
 
+type Styler interface {
+	Style() *style.Sheet
+}
+
+type HTMLProvider interface {
+	HTML() string
+}
+
+type JSProvider interface {
+	JS() []*js.Script
+}
+
+type IconProvider interface {
+	Icons() *sprite.Sprite
+}
+
+func collect(parts ...widget.Widget) ssr {
+	var s ssr
+	s.Icons = sprite.NewSprite()
+	for _, p := range parts {
+		if styler, ok := p.(Styler); ok {
+			sheet := styler.Style()
+			if sheet != nil {
+				s.Render += sheet.Stylesheet().String()
+			}
+		}
+		if iconProv, ok := p.(IconProvider); ok {
+			icons := iconProv.Icons()
+			if icons != nil {
+				if spr, ok := s.Icons.(*sprite.Sprite); ok {
+					spr.Merge(icons)
+				}
+			}
+		}
+		if htmlProv, ok := p.(HTMLProvider); ok {
+			s.HTML += htmlProv.HTML()
+		}
+		if jsProv, ok := p.(JSProvider); ok {
+			for _, scr := range jsProv.JS() {
+				if scr != nil {
+					s.Scripts = append(s.Scripts, script{Name: scr.Name, Content: scr.Content})
+				}
+			}
+		}
+	}
+	return s
+}
+
 func main() {
 	all := make(map[string]ssr)
 	{{range .Modules}}
-	{{if .HasAnyFeature}}
 	{
-		var s ssr
-		{{if .ReceiverType}}
-		{
-			inst := &{{.Alias}}.{{.ReceiverType}}{}
-			{{if .HasRoot}}s.Root = inst.RootCSS().String(){{end}}
-			{{if .HasRender}}s.Render = inst.RenderCSS().String(){{end}}
-			{{if .HasHTML}}s.HTML = inst.RenderHTML(){{end}}
-			{{if .HasJS}}
-			for _, scr := range inst.RenderJS() {
-				s.Scripts = append(s.Scripts, script{Name: scr.Name, Content: scr.Content})
-			}
-			{{end}}
-			{{if .HasIcons}}s.Icons = inst.IconSvg(){{end}}
-		}
-		{{else}}
-		{
-			{{if .HasRoot}}s.Root = {{.Alias}}.RootCSS().String(){{end}}
-			{{if .HasRender}}s.Render = {{.Alias}}.RenderCSS().String(){{end}}
-			{{if .HasHTML}}s.HTML = {{.Alias}}.RenderHTML(){{end}}
-			{{if .HasJS}}
-			for _, scr := range {{.Alias}}.RenderJS() {
-				s.Scripts = append(s.Scripts, script{Name: scr.Name, Content: scr.Content})
-			}
-			{{end}}
-			{{if .HasIcons}}s.Icons = {{.Alias}}.IconSvg(){{end}}
-		}
-		{{end}}
-		all["{{.Path}}"] = s
+		all["{{.Path}}"] = collect({{.Alias}}.SSR()...)
 	}
-	{{end}}
 	{{end}}
 	json.NewEncoder(os.Stdout).Encode(all)
 }
@@ -158,36 +162,8 @@ func main() {
 	return tmpl.Execute(f, data)
 }
 
-// Feature detection matches on the METHOD NAME only — never on its return type or
-// the package that type comes from. That is what let IconSvg() switch from
-// *svg.Sprite to *sprite.Sprite without touching a single pattern here, and it is
-// why the generated main.go can keep `Icons any`: it is compiled standalone against
-// whatever the target module's own IconSvg() returns.
-var (
-	reRootCSS    = regexp.MustCompile(`(?m)^func \(\w+ \*?(\w+)\) RootCSS\(\)`)
-	reRenderCSS  = regexp.MustCompile(`(?m)^func \(\w+ \*?(\w+)\) RenderCSS\(\)`)
-	reRenderHTML = regexp.MustCompile(`(?m)^func \(\w+ \*?(\w+)\) RenderHTML\(\)`)
-	reRenderJS   = regexp.MustCompile(`(?m)^func \(\w+ \*?(\w+)\) RenderJS\(\)`)
-	reIconSvg    = regexp.MustCompile(`(?m)^func \(\w+ \*?(\w+)\) IconSvg\(\)`)
-
-	// Fallback regexes for functions without receiver
-	reRootCSSFunc    = regexp.MustCompile(`(?m)^func RootCSS\(\)`)
-	reRenderCSSFunc  = regexp.MustCompile(`(?m)^func RenderCSS\(\)`)
-	reRenderHTMLFunc = regexp.MustCompile(`(?m)^func RenderHTML\(\)`)
-	reRenderJSFunc   = regexp.MustCompile(`(?m)^func RenderJS\(\)`)
-	reIconSvgFunc    = regexp.MustCompile(`(?m)^func IconSvg\(\)`)
-)
-
 // expandToSSRPackages turns each module into the PACKAGES inside it that actually
 // declare SSR sources.
-//
-// A real app keeps its RootCSS() in config/ and its views in modules/x/ — never at
-// the module root. Reading the source files only at the module dir found nothing, so
-// the generated main.go never called RootCSS(): the app shipped with an empty
-// style.css and no icons, and nothing failed loudly.
-//
-// Only packages that carry an SSR source file are returned. That matters: the module
-// root is usually `package main`, and a generated main.go cannot import it.
 func expandToSSRPackages(modules []module) []module {
 	var out []module
 	seen := make(map[string]bool)
@@ -243,7 +219,7 @@ func hasSSRSource(dir string) bool {
 	return false
 }
 
-// modulesToAliases converts module information to alias mappings and detects features via regex.
+// modulesToAliases converts module information to alias mappings.
 func modulesToAliases(modules []module) []moduleAlias {
 	var aliases []moduleAlias
 	for _, m := range expandToSSRPackages(modules) {
@@ -255,59 +231,10 @@ func modulesToAliases(modules []module) []moduleAlias {
 			alias = "_" + alias
 		}
 
-
-		ma := moduleAlias{
+		aliases = append(aliases, moduleAlias{
 			Path:  m.path,
 			Alias: alias,
-		}
-
-		// Read all SSR source files to detect features
-		if m.dir != "" {
-			var combinedContent []byte
-			for _, f := range ssrSourceFiles {
-				if content, err := os.ReadFile(filepath.Join(m.dir, f)); err == nil {
-					combinedContent = append(combinedContent, content...)
-					combinedContent = append(combinedContent, '\n')
-				}
-			}
-
-			if len(combinedContent) > 0 {
-				// Detect receiver type
-				ma.ReceiverType = detectReceiverType(combinedContent)
-
-				if ma.ReceiverType != "" {
-					ma.HasRoot = reRootCSS.Match(combinedContent)
-					ma.HasRender = reRenderCSS.Match(combinedContent)
-					ma.HasHTML = reRenderHTML.Match(combinedContent)
-					ma.HasJS = reRenderJS.Match(combinedContent)
-					ma.HasIcons = reIconSvg.Match(combinedContent)
-				} else {
-					ma.HasRoot = reRootCSSFunc.Match(combinedContent)
-					ma.HasRender = reRenderCSSFunc.Match(combinedContent)
-					ma.HasHTML = reRenderHTMLFunc.Match(combinedContent)
-					ma.HasJS = reRenderJSFunc.Match(combinedContent)
-					ma.HasIcons = reIconSvgFunc.Match(combinedContent)
-				}
-			}
-		}
-
-		aliases = append(aliases, ma)
+		})
 	}
 	return aliases
-}
-
-func detectReceiverType(content []byte) string {
-	regs := []*regexp.Regexp{reRootCSS, reRenderCSS, reRenderHTML, reRenderJS, reIconSvg}
-	var detected string
-	for _, re := range regs {
-		m := re.FindSubmatch(content)
-		if len(m) > 1 {
-			found := string(m[1])
-			if detected != "" && detected != found {
-				continue
-			}
-			detected = found
-		}
-	}
-	return detected
 }
