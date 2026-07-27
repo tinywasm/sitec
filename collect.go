@@ -35,7 +35,6 @@ type ScriptOutput struct {
 
 // Bundle represents the aggregated SSR assets.
 type Bundle struct {
-	Root    string         `json:"root"`
 	Render  string         `json:"render"`
 	HTML    string         `json:"html"`
 	Scripts []ScriptOutput `json:"scripts"`

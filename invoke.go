@@ -81,7 +81,6 @@ type script struct {
 }
 
 type ssr struct {
-	Root    string   ` + "`json:\"root\"`" + `
 	Render  string   ` + "`json:\"render\"`" + `
 	HTML    string   ` + "`json:\"html\"`" + `
 	Scripts []script ` + "`json:\"scripts\"`" + `

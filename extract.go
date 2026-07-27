@@ -72,7 +72,7 @@ func extractAssetsForModule(m module, rootDir string, allModules []module, binCa
 
 	return &assetmin.SSRAssets{
 		ModuleName: m.path,
-		RootCSS:    output.Root,
+		RootCSS:    "", // RootCSS is now empty/unused, as all CSS is emitted as a unified cascade stylesheet in CSS
 		CSS:        output.Render,
 		JS:         scripts,
 		HTML:       output.HTML,
@@ -98,7 +98,6 @@ func MergeResultsFor(modulePath string, results map[string]Bundle) (Bundle, bool
 	merged.Icons = sprite.NewSprite()
 	for _, p := range paths {
 		out := results[p]
-		merged.Root += out.Root
 		merged.Render += out.Render
 		merged.HTML += out.HTML
 		merged.Scripts = append(merged.Scripts, out.Scripts...)

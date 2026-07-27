@@ -145,3 +145,19 @@ de aparición.
 4. El bundle emitido es idéntico byte a byte en dos ejecuciones y en dos máquinas.
 5. Test en `ssr`: un tipo que satisface `Styler` emite; uno que solo tiene un `RenderCSS`
    suelto **no compila** al pasarse a `Collect` (test de compilación negativa).
+
+---
+
+## Contrato de Paquete SSR
+
+Cada paquete que declare recursos SSR (`css.go`, `js.go`, `svg.go`, `html.go`) debe exportar una función denominada exactamente `SSR()` que no reciba argumentos y retorne una lista de widgets (`[]widget.Widget`):
+
+```go
+func SSR() []widget.Widget {
+	return []widget.Widget{
+		&MyComponent{},
+	}
+}
+```
+
+Esto permite al extractor invocar la recolección tipada mediante `ssr.Collect` sin necesidad de escaneo regex. Si falta esta función en un paquete con recursos SSR, el build fallará en tiempo de compilación.
