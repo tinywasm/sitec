@@ -22,5 +22,5 @@ require (
 	github.com/tinywasm/model v0.1.0 // indirect
 	github.com/tinywasm/router v0.1.13 // indirect
 	github.com/tinywasm/tui v0.1.1 // indirect
-	github.com/tinywasm/widget v0.1.0 // indirect
+	github.com/tinywasm/widget v0.2.0 // indirect
 )
