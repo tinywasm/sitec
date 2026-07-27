@@ -3,6 +3,7 @@ package ssr
 import (
 	"bytes"
 	"encoding/json"
+	stdFmt "fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -59,20 +60,11 @@ func GenerateExtractorMain(outputFile string, modules []module) error {
 import (
 	"encoding/json"
 	"os"
+	"reflect"
 	"github.com/tinywasm/widget"
-	"github.com/tinywasm/widget/style"
-	"github.com/tinywasm/js"
-	"github.com/tinywasm/svg/sprite"
 	{{range .Modules}}
 	{{.Alias}} "{{.Path}}"
 	{{end}}
-)
-
-var (
-	_ = widget.Region
-	_ = style.RadiusNone
-	_ = js.RuntimeGo
-	_ = sprite.Path
 )
 
 type script struct {
@@ -87,47 +79,62 @@ type ssr struct {
 	Icons   any      ` + "`json:\"icons\"`" + `
 }
 
-type Styler interface {
-	Style() *style.Sheet
-}
-
-type HTMLProvider interface {
-	HTML() string
-}
-
-type JSProvider interface {
-	JS() []*js.Script
-}
-
-type IconProvider interface {
-	Icons() *sprite.Sprite
-}
-
 func collect(parts ...widget.Widget) ssr {
 	var s ssr
-	s.Icons = sprite.NewSprite()
 	for _, p := range parts {
-		if styler, ok := p.(Styler); ok {
-			sheet := styler.Style()
-			if sheet != nil {
-				s.Render += sheet.Stylesheet().String()
-			}
+		if p == nil {
+			continue
 		}
-		if iconProv, ok := p.(IconProvider); ok {
-			icons := iconProv.Icons()
-			if icons != nil {
-				if spr, ok := s.Icons.(*sprite.Sprite); ok {
-					spr.Merge(icons)
+		val := reflect.ValueOf(p)
+
+		// Style()
+		if method := val.MethodByName("Style"); method.IsValid() {
+			sheetResults := method.Call(nil)
+			if len(sheetResults) > 0 && !sheetResults[0].IsNil() {
+				sheet := sheetResults[0]
+				if stylesheetMethod := sheet.MethodByName("Stylesheet"); stylesheetMethod.IsValid() {
+					stylesheetResults := stylesheetMethod.Call(nil)
+					if len(stylesheetResults) > 0 && !stylesheetResults[0].IsNil() {
+						stylesheet := stylesheetResults[0]
+						if stringMethod := stylesheet.MethodByName("String"); stringMethod.IsValid() {
+							s.Render += stringMethod.Call(nil)[0].String()
+						}
+					}
 				}
 			}
 		}
-		if htmlProv, ok := p.(HTMLProvider); ok {
-			s.HTML += htmlProv.HTML()
+
+		// Icons()
+		if method := val.MethodByName("Icons"); method.IsValid() {
+			iconsResults := method.Call(nil)
+			if len(iconsResults) > 0 && !iconsResults[0].IsNil() {
+				s.Icons = iconsResults[0].Interface()
+			}
 		}
-		if jsProv, ok := p.(JSProvider); ok {
-			for _, scr := range jsProv.JS() {
-				if scr != nil {
-					s.Scripts = append(s.Scripts, script{Name: scr.Name, Content: scr.Content})
+
+		// HTML()
+		if method := val.MethodByName("HTML"); method.IsValid() {
+			htmlResults := method.Call(nil)
+			if len(htmlResults) > 0 {
+				s.HTML += htmlResults[0].String()
+			}
+		}
+
+		// JS()
+		if method := val.MethodByName("JS"); method.IsValid() {
+			jsResults := method.Call(nil)
+			if len(jsResults) > 0 && !jsResults[0].IsNil() {
+				scriptsSlice := jsResults[0]
+				for i := 0; i < scriptsSlice.Len(); i++ {
+					scriptVal := scriptsSlice.Index(i)
+					if !scriptVal.IsNil() {
+						nameVal := scriptVal.Elem().FieldByName("Name")
+						contentVal := scriptVal.Elem().FieldByName("Content")
+						s.Scripts = append(s.Scripts, script{
+							Name:    nameVal.String(),
+							Content: contentVal.String(),
+						})
+					}
 				}
 			}
 		}
@@ -162,7 +169,7 @@ func main() {
 }
 
 // expandToSSRPackages turns each module into the PACKAGES inside it that actually
-// declare SSR sources.
+// declare SSR sources and implement the SSR() function.
 func expandToSSRPackages(modules []module) []module {
 	var out []module
 	seen := make(map[string]bool)
@@ -191,7 +198,7 @@ func expandToSSRPackages(modules []module) []module {
 					return filepath.SkipDir
 				}
 			}
-			if !hasSSRSource(path) {
+			if !hasSSRSource(path) || !packageHasSSRFunction(path) {
 				return nil
 			}
 
@@ -218,18 +225,30 @@ func hasSSRSource(dir string) bool {
 	return false
 }
 
-// modulesToAliases converts module information to alias mappings.
+func packageHasSSRFunction(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".go") && !strings.HasSuffix(entry.Name(), "_test.go") {
+			content, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+			if err != nil {
+				continue
+			}
+			if strings.Contains(string(content), "func SSR(") || strings.Contains(string(content), "func SSR (") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// modulesToAliases converts module information to alias mappings using safe indexed prefix m%d.
 func modulesToAliases(modules []module) []moduleAlias {
 	var aliases []moduleAlias
-	for _, m := range expandToSSRPackages(modules) {
-		parts := strings.Split(m.path, "/")
-		alias := strings.ReplaceAll(parts[len(parts)-1], "-", "_")
-
-		// If alias starts with a digit or is empty, prepend an underscore to make it a valid Go identifier
-		if len(alias) == 0 || (alias[0] >= '0' && alias[0] <= '9') {
-			alias = "_" + alias
-		}
-
+	for i, m := range expandToSSRPackages(modules) {
+		alias := stdFmt.Sprintf("m%d", i)
 		aliases = append(aliases, moduleAlias{
 			Path:  m.path,
 			Alias: alias,
