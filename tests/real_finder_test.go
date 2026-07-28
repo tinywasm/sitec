@@ -23,8 +23,8 @@ func TestExtract_RealFinder_ToleratesDependencyModules(t *testing.T) {
 go 1.25.2
 
 require (
-	github.com/tinywasm/widget v0.1.0
-	github.com/tinywasm/css v0.2.0
+	github.com/tinywasm/widget v0.3.0
+	github.com/tinywasm/css v0.3.0
 	github.com/tinywasm/fmt v0.25.5
 	github.com/tinywasm/js v0.0.4
 )
@@ -33,7 +33,7 @@ require (
 		t.Fatal(err)
 	}
 
-	// Create a subpackage with a widget implementing Style()
+	// Create a subpackage with a widget implementing RenderCSS()
 	if err := os.MkdirAll(filepath.Join(root, "config"), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -43,6 +43,7 @@ require (
 package config
 
 import (
+	"github.com/tinywasm/css"
 	"github.com/tinywasm/widget"
 	"github.com/tinywasm/widget/style"
 )
@@ -51,8 +52,8 @@ type MyWidget struct{}
 
 func (m *MyWidget) WidgetName() widget.Name { return widget.Name("my-widget") }
 func (m *MyWidget) WidgetKind() widget.Kind { return widget.Region }
-func (m *MyWidget) Style() *style.Sheet {
-	return style.Of(m.WidgetName()).Root(style.Pad(style.Space0))
+func (m *MyWidget) RenderCSS() *css.Stylesheet {
+	return style.Of(m.WidgetName()).Root(style.Pad(style.Space0)).Stylesheet()
 }
 `
 	if err := os.WriteFile(filepath.Join(root, "config", "css.go"), []byte(cssContent), 0644); err != nil {
@@ -75,6 +76,6 @@ func (m *MyWidget) Style() *style.Sheet {
 		t.Fatal("expected non-nil assets")
 	}
 	if !strings.Contains(assets.CSS, "my-widget") {
-		t.Fatalf("expected CSS from the widget's Style(), got: %q", assets.CSS)
+		t.Fatalf("expected CSS from the widget's RenderCSS(), got: %q", assets.CSS)
 	}
 }

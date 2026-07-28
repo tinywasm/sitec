@@ -3,8 +3,6 @@ package ssr
 import (
 	"bytes"
 	"encoding/json"
-	"go/parser"
-	"go/token"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -32,8 +30,7 @@ type ScriptOutput struct {
 }
 
 const (
-	aliasPrefix    = "m_"
-	widgetStylePkg = "github.com/tinywasm/widget/style"
+	aliasPrefix = "m_"
 )
 
 type moduleAlias struct {
@@ -42,14 +39,13 @@ type moduleAlias struct {
 	ReceiverType string
 	HasRoot      bool
 	HasRender    bool
-	HasStyle     bool
 	HasHTML      bool
 	HasJS        bool
 	HasIcons     bool
 }
 
 func (m moduleAlias) HasAnyFeature() bool {
-	return m.HasRoot || m.HasRender || m.HasStyle || m.HasHTML || m.HasJS || m.HasIcons
+	return m.HasRoot || m.HasRender || m.HasHTML || m.HasJS || m.HasIcons
 }
 
 // invokeSSRExtractorOnce generates a combined main.go, runs it once, and returns the aggregated output.
@@ -93,7 +89,6 @@ func GenerateExtractorMain(outputFile string, modules []module) error {
 import (
 	"encoding/json"
 	"os"
-	{{if .AnyStyle}}twstyle "{{.WidgetStylePkg}}"{{end}}
 	{{range .Modules}}
 	{{if .HasAnyFeature}}{{.Alias}} "{{.Path}}"{{end}}
 	{{end}}
@@ -123,12 +118,6 @@ func main() {
 			inst := &{{.Alias}}.{{.ReceiverType}}{}
 			{{if .HasRoot}}s.Root = inst.RootCSS().String(){{end}}
 			{{if .HasRender}}s.Render += inst.RenderCSS().String(){{end}}
-			{{if .HasStyle}}
-			{
-				var w twstyle.Styler = inst
-				s.Render += w.Style().Stylesheet().String()
-			}
-			{{end}}
 			{{if .HasHTML}}s.HTML = inst.RenderHTML(){{end}}
 			{{if .HasJS}}
 			for _, scr := range inst.RenderJS() {
@@ -162,22 +151,11 @@ func main() {
 	if err != nil {
 		return err
 	}
-	anyStyle := false
-	for _, a := range aliases {
-		if a.HasStyle {
-			anyStyle = true
-			break
-		}
-	}
 
 	data := struct {
-		Modules        []moduleAlias
-		AnyStyle       bool
-		WidgetStylePkg string
+		Modules []moduleAlias
 	}{
-		Modules:        aliases,
-		AnyStyle:       anyStyle,
-		WidgetStylePkg: widgetStylePkg,
+		Modules: aliases,
 	}
 
 	f, err := os.Create(outputFile)
@@ -197,7 +175,6 @@ func main() {
 var (
 	reRootCSS    = regexp.MustCompile(`(?m)^func \(\w+ \*?(\w+)\) RootCSS\(\)`)
 	reRenderCSS  = regexp.MustCompile(`(?m)^func \(\w+ \*?(\w+)\) RenderCSS\(\)`)
-	reStyle      = regexp.MustCompile(`(?m)^func \(\w+ \*?(\w+)\) Style\(\)`)
 	reRenderHTML = regexp.MustCompile(`(?m)^func \(\w+ \*?(\w+)\) RenderHTML\(\)`)
 	reRenderJS   = regexp.MustCompile(`(?m)^func \(\w+ \*?(\w+)\) RenderJS\(\)`)
 	reIconSvg    = regexp.MustCompile(`(?m)^func \(\w+ \*?(\w+)\) IconSvg\(\)`)
@@ -275,21 +252,10 @@ func hasSSRSource(dir string) bool {
 	return false
 }
 
-// importsWidgetStyle informs if any of the SSR files of dir imports widget/style.
-func importsWidgetStyle(dir string) bool {
-	for _, f := range ssrSourceFiles {
-		path := filepath.Join(dir, f)
-		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
-		if err != nil {
-			continue
-		}
-		for _, imp := range file.Imports {
-			if imp.Path != nil && strings.Trim(imp.Path.Value, `"`) == widgetStylePkg {
-				return true
-			}
-		}
-	}
-	return false
+// hasCSSSource reports whether dir carries a css.go at all.
+func hasCSSSource(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, cssSourceFile))
+	return err == nil
 }
 
 // modulesToAliases converts module information to alias mappings and detects features via regex.
@@ -322,7 +288,6 @@ func modulesToAliases(modules []module) ([]moduleAlias, error) {
 				if ma.ReceiverType != "" {
 					ma.HasRoot = reRootCSS.Match(combinedContent)
 					ma.HasRender = reRenderCSS.Match(combinedContent)
-					ma.HasStyle = reStyle.Match(combinedContent)
 					ma.HasHTML = reRenderHTML.Match(combinedContent)
 					ma.HasJS = reRenderJS.Match(combinedContent)
 					ma.HasIcons = reIconSvg.Match(combinedContent)
@@ -335,10 +300,13 @@ func modulesToAliases(modules []module) ([]moduleAlias, error) {
 				}
 			}
 
-			if !ma.HasStyle && importsWidgetStyle(m.dir) {
+			// A css.go that declares no provider is always a defect: the file exists to be
+			// collected, and a misnamed builder is otherwise emitted nowhere and fails silently
+			// — the component renders unstyled and the build stays green.
+			if hasCSSSource(m.dir) && !ma.HasRoot && !ma.HasRender {
 				return nil, fmt.Err("ssr: package", m.path,
-					"imports "+widgetStylePkg+" but declares no Style() method;",
-					"expected: func (w *T) Style() *style.Sheet")
+					"has "+cssSourceFile+" but declares no RootCSS() or RenderCSS();",
+					"expected: func (w *T) RenderCSS() *css.Stylesheet")
 			}
 		}
 
@@ -348,7 +316,7 @@ func modulesToAliases(modules []module) ([]moduleAlias, error) {
 }
 
 func detectReceiverType(content []byte) string {
-	regs := []*regexp.Regexp{reRootCSS, reRenderCSS, reStyle, reRenderHTML, reRenderJS, reIconSvg}
+	regs := []*regexp.Regexp{reRootCSS, reRenderCSS, reRenderHTML, reRenderJS, reIconSvg}
 	var detected string
 	for _, re := range regs {
 		m := re.FindSubmatch(content)
