@@ -18,23 +18,33 @@ type module struct {
 }
 
 type Extractor struct {
-	rootDir string
-	finder  *modfind.Finder
-	log     func(...any)
-	cache   *ssrCache
-	mu      sync.Mutex
+	rootDir        string
+	finder         *modfind.Finder
+	log            func(...any)
+	cache          *ssrCache
+	scanner        *scanner
+	AssetLibraries []string
+	mu             sync.Mutex
 }
 
 func New(rootDir string) *Extractor {
 	return &Extractor{
-		rootDir: rootDir,
-		log:     func(...any) {},
-		cache:   newSSRCache(),
+		rootDir:        rootDir,
+		log:            func(...any) {},
+		cache:          newSSRCache(),
+		scanner:        newScanner(),
+		AssetLibraries: []string{"github.com/tinywasm/widget/style"},
 	}
 }
 
 func (e *Extractor) SetLog(fn func(...any))     { e.log = fn }
 func (e *Extractor) SetFinder(f *modfind.Finder) { e.finder = f }
+
+func (e *Extractor) SetAssetLibraries(libs []string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.AssetLibraries = libs
+}
 
 func (e *Extractor) ExtractModule(moduleDir string) (*assetmin.SSRAssets, error) {
 	rootDir, err := findProjectRoot(moduleDir)
@@ -67,7 +77,7 @@ func (e *Extractor) ExtractModule(moduleDir string) (*assetmin.SSRAssets, error)
 			target = module{path: moduleDir, dir: moduleDir}
 		}
 	}
-	a, err := extractAssetsForModule(target, rootDir, modules, "", e.cache, e.log, &e.mu)
+	a, err := extractAssetsForModule(target, rootDir, modules, "", e.cache, e.scanner, e.AssetLibraries, e.log, &e.mu)
 	if err != nil || a == nil {
 		return nil, err
 	}
@@ -83,7 +93,7 @@ func (e *Extractor) ExtractAll() ([]*assetmin.SSRAssets, error) {
 	}
 	var all []*assetmin.SSRAssets
 	for _, m := range modules {
-		a, err := extractAssetsForModule(m, e.rootDir, modules, "", e.cache, e.log, &e.mu)
+		a, err := extractAssetsForModule(m, e.rootDir, modules, "", e.cache, e.scanner, e.AssetLibraries, e.log, &e.mu)
 		if err != nil {
 			e.log("ssr extract error:", m.path, err)
 			continue

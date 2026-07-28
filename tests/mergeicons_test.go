@@ -52,7 +52,10 @@ func TestMergeResultsFor_DoesNotMutateCachedSprites(t *testing.T) {
 	}
 
 	// First aggregation of module "app": crudview(3) + platformd(3) = 6.
-	merged1, ok := ssr.MergeResultsFor("app", results)
+	merged1, ok, err := ssr.MergeResultsFor("app", results)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok {
 		t.Fatal("MergeResultsFor(app) returned ok=false")
 	}
@@ -70,7 +73,7 @@ func TestMergeResultsFor_DoesNotMutateCachedSprites(t *testing.T) {
 	// an unchanged module set => cache hit => same results object). With a correct
 	// (non-mutating) merge this is 6 again; with the bug it is 9 (platformd merged
 	// twice into the corrupted crudview sprite).
-	merged2, _ := ssr.MergeResultsFor("app", results)
+	merged2, _, _ := ssr.MergeResultsFor("app", results)
 	if got := merged2.Icons.Len(); got != 6 {
 		t.Errorf("second merge over cached results: want 6 icons, got %d "+
 			"(cache corruption makes icon counts drift across extractions)", got)

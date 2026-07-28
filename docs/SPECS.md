@@ -6,9 +6,6 @@ conditions and output shape. Structure and reasoning are not repeated here — s
 
 Every rule below is a test assertion.
 
-> **STATUS (remove this note when total detection lands):** §1–§5 specify the
-> target. §6 records what the published code does instead.
-
 ---
 
 ## 1. Producer detection
@@ -118,31 +115,6 @@ are never merged.
 
 ---
 
-## 6. Published behaviour
-
-What the code does today, kept so the gap is explicit. Each row is a defect
-tracked by the execution plan.
-
-| Area | Published | Target |
-|---|---|---|
-| Files searched | `css.go`, `js.go`, `svg.go`, `html.go` only | every non-test `.go` file (§1.1) |
-| Producers per package | first matching type only — `detectReceiverType` uses `FindSubmatch` | all types (§1.2) |
-| Signature form | single line, single spaces | any gofmt-legal form (§1.2) |
-| Missing-producer error | only when `css.go` exists | keyed on the import (§3) |
-| Layer statement | repeated once per component sheet | hoisted to one (§4.1) |
-| Duplicate blocks | emitted once per component | merged (§4.2) |
-| Zero-value contract | undocumented | §7 |
-
-Reproduction of the two-type case, run against the published detector:
-
-```
-detectReceiverType = "Alpha"
-receivers actually present: 2   (Alpha, Beta)
-```
-
-`Beta` is never instantiated, and the build stays green.
-
----
 
 ## 7. Author contract
 
