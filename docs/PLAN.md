@@ -1,276 +1,181 @@
-# PLAN — make extraction total, deduplicated, and impossible to fail silently
+# PLAN — total detection, deduplicated merge
+
+Execution document. Steps, reference code, test strategy. **Ephemeral**: not
+indexed by `README.md`, and no permanent document links here.
+
+Everything this plan needs is specified elsewhere. Consult those documents only
+when a step is ambiguous — do not re-derive their content here:
+
+| If you need… | Read |
+|---|---|
+| exact detection rules, merge semantics, error messages | [SPECS.md](SPECS.md) |
+| why a decision was made, or what was already rejected | [DESIGN.md](DESIGN.md) |
+| the structure and guarantees being preserved | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| the pipeline, and where assets are lost today | [diagrams/EXTRACTION.md](diagrams/EXTRACTION.md) |
+
+---
 
 ## Development Rules
 
-Copied from `docs/DOCUMENTATION.md`, plus the constraints this module already
-operates under.
-
-- **Documentation first.** Update the docs before writing code.
+- **Documentation first.** The documents above are written to the target. Code
+  follows them; if code and SPECS disagree, decide which is wrong and fix both in
+  the same commit.
 - **Never fail silently.** An asset that should have been collected and was not is
-  a defect, not a warning. The module already takes this position in
-  `invoke.go` — *"a misnamed builder is otherwise emitted nowhere and fails
-  silently — the component renders unstyled and the build stays green"* — and this
-  plan extends it to the cases that still slip through.
-- **Feature detection matches on the METHOD NAME only**, never on return type or
-  the package that type comes from. That is what let `IconSvg()` change its return
-  type without touching a pattern, and it is why the generated `main.go` can keep
-  `Icons any`. Preserve this property.
-- **Zero-value instantiation.** Providers are called on `&T{}`. This is a contract
-  with the component author, and it must be documented rather than assumed.
-- **Deterministic output.** Merged CSS must not shuffle between runs; the existing
-  sorted merge in `MergeResultsFor` is a guarantee, not an implementation detail.
-- **Ephemeral document.** Not indexed by `README.md`. Rationale belongs in
-  `DESIGN.md`, contracts in `ARCHITECTURE.md`.
+  a defect. Make the extractor find it, or fail the build naming the package.
+  Never skip quietly.
+- **Detection matches the method name only** — never signature, return type, or
+  the package a returned type comes from. This is what lets a producer change its
+  return type without touching the extractor. Hard constraint on every step below.
+- **Zero-value instantiation.** Producers run on `&T{}`.
+- **Deterministic output.** Merged assets must not shuffle between runs.
 
 ---
 
 ## 1. Goal
 
-`ssr` is the delivery layer of the three-library split:
-
-| Library | Owns | Never does |
-|---|---|---|
-| `tinywasm/css` | **Values** — what a colour, space, duration or z-level *is*; light/dark switching; contrast guarantees | Know anything about components |
-| `tinywasm/widget` | **Decisions** — which token applies to which part in which state | Invent a value |
-| `tinywasm/ssr` | **Delivery** — collect the sheets actually used, order them, deduplicate them | Know what a widget is |
-
-The design principle is shared with `tinywasm/widget`:
-
-> **Less is more.** The author of a component should write the smallest possible
-> amount of ceremony to be collected, and every rule they must remember in order
-> to be collected correctly is a rule that will eventually be forgotten. Prefer
-> deleting a convention over documenting it.
-
-Concretely, a component author's obligation should be exactly this and nothing
-more:
-
-```go
-// css.go
-package masterdetail
-
-func (m *MasterDetail) RenderCSS() *css.Stylesheet {
-    return style.Of(m.WidgetName()).
-        Root(style.Grid(style.TrackSm, style.SpaceSm), style.On(style.Page)).
-        Part("item", style.Row(style.SpaceXs), style.Interactive(style.Muted)).
-        Stylesheet()
-}
-```
-
-One file, one method, no registration, no init, no separate `Style()` step.
+A component author writes only the component. A package that declares a producer
+is collected because it declares one — no registry, no init, no manifest, and no
+filename to remember.
 
 ---
 
-## 2. Findings
+## 2. Defects this plan closes
 
-All verified against `ebf2e45`, by reading and by executing the detection code —
-not assumed.
+Each was reproduced by executing the detection code at `ebf2e45`. Keep the
+reproducers; they become the tests in §5.
 
-### 2.1 A second component in the same package is silently dropped
+**E-1 — a second producer type in the same package is dropped.**
+`detectReceiverType` uses `FindSubmatch`, which returns only the first match. Run
+against a package declaring `RenderCSS` on `Alpha` and `Beta`:
 
-`detectReceiverType` uses `FindSubmatch`, which returns only the **first** match:
-
-```go
-m := re.FindSubmatch(content)
-if len(m) > 1 { … detected = found }
-```
-
-Executed against a package declaring two providers:
-
-```go
-func (a *Alpha) RenderCSS() *css.Stylesheet { … }
-func (b *Beta)  RenderCSS() *css.Stylesheet { … }
-```
 ```
 detectReceiverType = "Alpha"
 receivers actually present: 2   (Alpha, Beta)
 ```
 
-The generated `main.go` instantiates `&ui.Alpha{}` only. **`Beta` ships
-unstyled, with a green build** — precisely the failure mode the module's own
-comment says it exists to prevent.
+The generated program instantiates `&ui.Alpha{}` only. `Beta` ships unstyled with
+a green build.
 
-There is an implicit "one component per package" rule here that is nowhere
-documented and nowhere enforced.
+**E-2 — a producer outside the four known filenames is invisible.** Detection
+reads only `css.go`, `js.go`, `svg.go`, `html.go`. A `RenderCSS` in `widget.go` is
+never seen — and because `hasCSSSource()` is also false, the "declares no
+producer" guard never fires either. The loud error only protects the author who
+already got the filename right.
 
-### 2.2 A provider outside the four known filenames is invisible
+**E-3 — the regexes require a single-line signature.** A gofmt-legal receiver
+split across lines, or a generic receiver, yields no assets and no error.
+
+**E-4 — the layer statement repeats once per component.** Sheets are merged by
+`+=`, so the cascade order of the whole application depends on which sheet sorts
+first. Two components already produce two statements.
+
+**E-5 — identical declaration blocks recur across components.** No single sheet
+can know how many others exist, so the redundancy is only removable here.
+
+**E-6 — the zero-value contract is undocumented.** Producers run on `&T{}`;
+nothing tells authors so and nothing tests it.
+
+---
+
+## 3. Coordination
+
+`tinywasm/widget` is landing a breaking release that removes unreachable
+`.fl-*` / `.exc-*` selectors from every sheet. **Measure steps 4 and 5 after that
+lands**, so the dedupe work is sized against real output rather than today's.
+
+Steps 1–3 are independent of it and can start now.
+
+---
+
+## 4. Implementation order
+
+**Step 1 — `go/ast` detection.** Replaces the ten regexes in `invoke.go` and the
+`ssrSourceFiles` list in `extract.go`. Reuse the mtime cache in `scanner.go`.
+Closes **E-2**, **E-3**. SPECS §1.
+
+Walk every non-test file; for each `*ast.FuncDecl` whose `Name.Name` is a producer
+name, record the name and — if there is a receiver — its type identifier. Match on
+the name only; never inspect `Type.Results`.
+
+**Step 2 — N producer types per package.** `moduleAlias.ReceiverType string`
+becomes `ReceiverTypes []string`, sorted; the generated `main.go` template loops
+over it and concatenates. Closes **E-1**. SPECS §1.2, §1.3.
 
 ```go
-var ssrSourceFiles = []string{"css.go", "js.go", "svg.go", "html.go"}
+{{range .ReceiverTypes}}
+{
+    inst := &{{$.Alias}}.{{.}}{}
+    {{if $.HasRoot}}s.Root += inst.RootCSS().String(){{end}}
+    {{if $.HasRender}}s.Render += inst.RenderCSS().String(){{end}}
+}
+{{end}}
 ```
 
-Detection reads **only** these four files. A `RenderCSS()` written in
-`widget.go`, `styles.go` or `masterdetail.go` is never seen. And because
-`hasCSSSource()` is also false in that case, the guard that would have raised the
-"declares no provider" error never fires either: the package is simply skipped.
+Note `s.Root +=`, not `s.Root =`: with several types the assignment form silently
+kept the last one.
 
-So the loud error only protects the author who already got the filename right.
-The author who did not gets silence — the same silence that once shipped an empty
-`style.css`.
+**Step 3 — widen the missing-producer error.** Key it on the package's imports
+rather than on `css.go` existing, now that step 1 has removed the filename
+dependency. Closes the silent half of **E-2**. SPECS §3.
 
-### 2.3 Widget sheets repeat their preamble once per component
+The import list is configuration, not a constant — `widget/style` today, more
+later.
 
-`MergeResultsFor` concatenates: `merged.Render += out.Render`. Each
-`widget/style` sheet begins with its own layer statement and its own primitives
-block. Two trivial widgets already produce:
+**Step 4 — hoist the layer statement.** In `MergeResultsFor`. Collect every
+`@layer …;`, error on conflict, emit one first, strip the rest. Closes **E-4**.
+SPECS §4.1.
 
-```
-@layer statement repeats: 2
-.fl-stack occurrences:    4
-```
+**Step 5 — merge identical blocks.** Same layer, byte-identical declarations, no
+intervening overlapping selector; the merged rule takes the first occurrence's
+position. Closes **E-5**. SPECS §4.2.
 
-`tinywasm/widget` is fixing its side (it emits unreachable `.fl-*` selectors that
-no markup can reference). But the layer statement will still repeat once per
-component, and identical declaration blocks will still recur across components,
-because no single sheet can know how many others exist. **Deduplication is
-structurally `ssr`'s job**, not the widget library's.
+This is an optimisation, not a correctness fix. **If the third condition cannot be
+established cheaply, ship steps 1–4 and drop this one** — see
+[DESIGN.md §5](DESIGN.md#5-why-identical-blocks-are-merged-and-where-the-merge-stops).
 
-### 2.4 The zero-value contract is undocumented
+**Step 6 — documentation.** Fold the author contract into `ARCHITECTURE.md §3`
+(already written), and confirm `README.md` indexes every permanent document.
+Closes **E-6**.
 
-The generated `main.go` does `inst := &m_x.T{}` and calls the provider. If a
-component's `RenderCSS()` reads a field, it silently emits CSS built from zero
-values. Nothing states this constraint to component authors, and nothing tests it.
-
-### 2.5 Regex detection is brittle in ways that fail quietly
-
-`^func \(\w+ \*?(\w+)\) RenderCSS\(\)` requires the signature to be on one line
-with single spaces. A gofmt-legal variation — a receiver split across lines, a
-generic receiver `func (w *Table[T]) RenderCSS()` — does not match. The result is
-never an error; it is an absent stylesheet.
-
-`go/parser` is already a dependency (`scanner.go` uses it for imports), so the
-brittleness buys nothing.
+**Step 7 — remove the STATUS markers** from `ARCHITECTURE.md` and `SPECS.md`, and
+delete `SPECS.md §6` once published behaviour matches the target. They exist
+because those documents were written ahead of the implementation; removing them is
+the last act of this plan.
 
 ---
 
-## 3. Design decisions
+## 5. Test strategy
 
-**D1 — Detect providers with `go/ast`, over every non-test `.go` file in the
-package.**
-Deletes the four-filename convention (2.2) and the single-line-signature
-fragility (2.5) in one move. Keeps the house rule intact: match on **method name
-only**, ignore signature and return type. `scanner.go` already caches parses by
-mtime; reuse that cache.
+Every test names the defect it closes.
 
-The `css.go` convention survives as a style preference, not a correctness trap —
-which is the "delete a convention rather than document it" principle applied.
-
-**D2 — Support N providers per package.**
-Collect every receiver type declaring a provider, instantiate each, and
-concatenate their output in sorted type-name order so emission stays
-deterministic. Fixes 2.1.
-
-**D3 — Keep the loud error, and widen what it covers.**
-Today: "has `css.go` but declares no provider". After D1 the check becomes: a
-package that imports `tinywasm/widget/style` but declares no `RenderCSS()` is an
-error. That reaches the author who never created a `css.go` at all — the case
-that is silent today.
-
-**D4 — Hoist and deduplicate the cascade-layer statement.**
-The merged output carries exactly one `@layer …;` statement, first, before any
-rule. Repeats are stripped. If two packages declare **different** layer orders,
-that is an error, not a silent last-one-wins — the cascade order of the whole app
-depends on it.
-
-**D5 — Merge byte-identical declaration blocks within the same layer.**
-Two components that both use `Stack` emit the same three declarations under
-different selectors. Merging them into one rule with a combined selector list is
-a real size win at app scale.
-
-Safety condition, which the test must encode: merge only rules **inside the same
-`@layer`**, only when the declaration blocks are byte-identical, and keep the
-position of the **first** occurrence. Rules in different layers, or with any
-intervening rule that targets an overlapping selector, are left alone. If this
-condition cannot be established cheaply, ship D1–D4 and leave D5 out — it is an
-optimisation, and the correctness items are not.
-
-**D6 — Document the zero-value contract** in `ARCHITECTURE.md` and enforce it
-with a test fixture whose provider would produce different output if a field were
-read.
-
----
-
-## 4. The contract `ssr` publishes
-
-To be written into `docs/ARCHITECTURE.md` as the authoritative statement, since
-this plan is ephemeral.
-
-A package is collected if it declares at least one method named `RootCSS`,
-`RenderCSS`, `RenderHTML`, `RenderJS` or `IconSvg`, on any type, in any non-test
-file.
-
-| Method | Goes to | Meaning |
+| Test | Asserts | Closes |
 |---|---|---|
-| `RootCSS()` | `SSRAssets.RootCSS` | `:root` token declarations. Owned by `tinywasm/css`; an application overrides via `css.Theme(css.Set(…))`. |
-| `RenderCSS()` | `SSRAssets.CSS` | Component CSS, scoped to the component. |
-| `RenderHTML()` | `SSRAssets.HTML` | Prerendered markup. |
-| `RenderJS()` | `SSRAssets.JS` | Scripts. |
-| `IconSvg()` | `SSRAssets.Icons` | Sprite, merged across packages. |
+| `TestTwoProducersOnePackage` | a package declaring `RenderCSS` on `Alpha` and `Beta` emits both stylesheets, in type-name order | E-1 |
+| `TestProducerOutsideCssGo` | a `RenderCSS` in `masterdetail.go`, with no `css.go`, is collected | E-2 |
+| `TestNoProducerIsAnError` | a package importing `widget/style` and declaring none fails the build, naming the package | E-2 |
+| `TestProducerMultilineSignature` | a receiver split across lines is detected | E-3 |
+| `TestProducerGenericReceiver` | `*Table[T]` is detected, and either collected or reported — never skipped silently | E-3 |
+| `TestSingleLayerStatement` | merged output has exactly one `@layer …;`, before any rule | E-4 |
+| `TestConflictingLayerOrderErrors` | two packages with different layer orders is an error, not last-one-wins | E-4 |
+| `TestIdenticalBlocksMerged` | two components using the same primitive emit one rule with both selectors | E-5 |
+| `TestMergeStopsAtOverlap` | **counter-fixture**: an intervening rule targeting an overlapping selector prevents the merge | E-5 |
+| `TestZeroValueProducer` | a producer whose output would differ if a field were read still emits the zero-value form | E-6 |
+| existing `deterministic_order_test.go` | byte-identical merge across runs — keep, extend to cover steps 2 and 5 | — |
 
-Rules the author must satisfy:
-
-1. The provider runs on a **zero value** (`&T{}`). It must not read fields.
-2. The provider must be **pure and deterministic**: same input, same bytes.
-3. Any number of types per package may declare providers.
-4. Declaring none while importing `tinywasm/widget/style` is an error.
-
----
-
-## 5. Implementation order
-
-Dependency order, not risk order.
-
-1. **`go/ast` provider detection** (D1) — replaces the five method regexes and the
-   five function-fallback regexes in `invoke.go`, and the `ssrSourceFiles` list in
-   `extract.go`. Reuse `scanner.go`'s mtime cache.
-2. **N receivers per package** (D2) — `moduleAlias.ReceiverType string` becomes
-   `ReceiverTypes []string`; the `main.go` template loops over them.
-3. **Widen the missing-provider error** (D3), now that detection no longer depends
-   on filenames.
-4. **Layer hoist and dedupe** (D4) in `MergeResultsFor`, plus the conflicting-order
-   error.
-5. **Identical-block merge** (D5), behind the safety condition. Drop this step if
-   the condition cannot be met cheaply.
-6. **`ARCHITECTURE.md`**: the contract in §4, the zero-value rule, and the
-   three-library boundary table from §1.
-7. **`README.md`**: index every file in `docs/` except this one.
-
-Coordination: `tinywasm/widget` is landing a breaking release that removes the
-unreachable `.fl-*`/`.exc-*` selectors from every sheet. Steps 4 and 5 are worth
-measuring **after** that lands, so the dedupe work is sized against the real
-output rather than today's.
+`TestMergeStopsAtOverlap` is not optional. A merge optimisation without a test
+proving where it stops is how cascade bugs get shipped.
 
 ---
 
-## 6. Test strategy
+## 6. Acceptance criterion
 
-Each test maps to a finding, so a regression is a named failure.
+Build a fixture app with four components:
 
-| Test | Asserts |
-|---|---|
-| `TestTwoProvidersOnePackage` | a package with `Alpha` and `Beta` both declaring `RenderCSS()` emits **both** stylesheets — 2.1 |
-| `TestProviderOutsideCssGo` | a `RenderCSS()` in `masterdetail.go`, with no `css.go`, is collected — 2.2 |
-| `TestProviderMultilineSignature` | a receiver split across lines, and a generic receiver `*Table[T]`, are both detected — 2.5 |
-| `TestNoProviderIsAnError` | a package importing `widget/style` with no provider fails the build loudly — D3 |
-| `TestSingleLayerStatement` | merged output contains exactly one `@layer …;`, positioned before any rule — D4 |
-| `TestConflictingLayerOrderErrors` | two packages declaring different layer orders is an error, not last-one-wins — D4 |
-| `TestIdenticalBlocksMerged` | two components using the same primitive emit one rule with both selectors; a counter-fixture with an intervening overlapping selector is **not** merged — D5 |
-| `TestZeroValueProvider` | a provider whose output would differ if a field were read still emits the zero-value form — 2.4 |
-| existing `deterministic_order_test.go` | byte-for-byte stable merge across runs — keep, and extend to cover D2 and D5 |
+1. two in one package,
+2. one whose producer lives in `masterdetail.go` rather than `css.go`,
+3. one importing `widget/style` and declaring no producer.
 
-`TestIdenticalBlocksMerged` carries the counter-fixture deliberately: a merge
-optimisation without a test proving where it *stops* is how cascade bugs get
-shipped.
+Today: components 2, 3 and 4 all ship unstyled, and the build is green three times
+over.
 
----
-
-## 7. Acceptance criterion
-
-Build a fixture app with two components in one package, a third whose provider
-lives in `masterdetail.go` rather than `css.go`, and a fourth that imports
-`widget/style` and declares nothing.
-
-Today: the second component ships unstyled, the third ships unstyled, the fourth
-ships unstyled — and the build is green three times over.
-
-After this plan: the first three are all collected, and the fourth fails the
-build with a message naming the package.
+After this plan: 1–3 are collected, and 4 fails the build naming the package.
