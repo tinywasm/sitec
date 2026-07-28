@@ -12,7 +12,7 @@ import (
 	"github.com/tinywasm/ssr"
 )
 
-func TestExtract_StyleMisnamed(t *testing.T) {
+func TestExtract_CSSNoProvider(t *testing.T) {
 	root := t.TempDir()
 
 	goMod := `module example.com/app
@@ -31,15 +31,11 @@ go 1.25.2
 
 package config
 
-import (
-	"github.com/tinywasm/widget/style"
-)
-
 type MyWidget struct{}
 
-// Misnamed Style() as GenerateCSS()
-func (m *MyWidget) GenerateCSS() *style.Sheet {
-	return nil
+// Misnamed RenderCSS() or RootCSS() as GenerateCSS()
+func (m *MyWidget) GenerateCSS() string {
+	return ""
 }
 `
 	if err := os.WriteFile(filepath.Join(root, "config", "css.go"), []byte(cssContent), 0644); err != nil {
@@ -53,10 +49,10 @@ func (m *MyWidget) GenerateCSS() *style.Sheet {
 
 	_, err := e.ExtractModule(root)
 	if err == nil {
-		t.Fatal("expected an error due to misnamed Style() method")
+		t.Fatal("expected an error due to misnamed provider method in css.go")
 	}
 
-	expectedStr := "imports github.com/tinywasm/widget/style but declares no Style() method"
+	expectedStr := "has css.go but declares no RootCSS() or RenderCSS()"
 	if !strings.Contains(err.Error(), expectedStr) {
 		t.Fatalf("expected error message to contain: %q, but got: %v", expectedStr, err)
 	}
