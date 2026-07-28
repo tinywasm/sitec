@@ -75,6 +75,14 @@ can know how many others exist, so the redundancy is only removable here.
 **E-6 — the zero-value contract is undocumented.** Producers run on `&T{}`;
 nothing tells authors so and nothing tests it.
 
+**E-7 — a panicking producer takes down the whole extraction opaquely.**
+`invokeSSRExtractorOnce` runs one generated program over every package at once,
+so a panic in any producer fails the run with a stack pointing at generated code
+the author never wrote. `tinywasm/widget` is about to make this reachable on
+purpose: an invalid sheet panics, by design, so a misspelt part name in one
+component will abort the extraction for all of them with no indication of which
+package caused it.
+
 ---
 
 ## 3. Coordination
@@ -133,11 +141,31 @@ This is an optimisation, not a correctness fix. **If the third condition cannot 
 established cheaply, ship steps 1–4 and drop this one** — see
 [DESIGN.md §5](DESIGN.md#5-why-identical-blocks-are-merged-and-where-the-merge-stops).
 
-**Step 6 — documentation.** Fold the author contract into `ARCHITECTURE.md §3`
+**Step 6 — recover per producer.** The generated program wraps each producer call
+in its own `recover()`, records the package path, the receiver type and the
+panic value, and reports them together at the end rather than aborting on the
+first. Closes **E-7**.
+
+```go
+func() {
+    defer func() {
+        if r := recover(); r != nil {
+            failures = append(failures, failure{Pkg: "{{.Path}}", Type: "{{.}}", Err: fmt.Sprint(r)})
+        }
+    }()
+    s.Render += inst.RenderCSS().String()
+}()
+```
+
+The run still fails — a producer that panics is a defect, and this module does
+not skip quietly. It fails *naming the package and type*, which is the whole
+difference between a thirty-second fix and an afternoon.
+
+**Step 7 — documentation.** Fold the author contract into `ARCHITECTURE.md §3`
 (already written), and confirm `README.md` indexes every permanent document.
 Closes **E-6**.
 
-**Step 7 — remove the STATUS markers** from `ARCHITECTURE.md` and `SPECS.md`, and
+**Step 8 — remove the STATUS markers** from `ARCHITECTURE.md` and `SPECS.md`, and
 delete `SPECS.md §6` once published behaviour matches the target. They exist
 because those documents were written ahead of the implementation; removing them is
 the last act of this plan.
@@ -159,6 +187,7 @@ Every test names the defect it closes.
 | `TestConflictingLayerOrderErrors` | two packages with different layer orders is an error, not last-one-wins | E-4 |
 | `TestIdenticalBlocksMerged` | two components using the same primitive emit one rule with both selectors | E-5 |
 | `TestMergeStopsAtOverlap` | **counter-fixture**: an intervening rule targeting an overlapping selector prevents the merge | E-5 |
+| `TestPanicNamesProducer` | a producer that panics fails the run with a message naming its package and receiver type, not a generated-code stack | E-7 |
 | `TestZeroValueProducer` | a producer whose output would differ if a field were read still emits the zero-value form | E-6 |
 | existing `deterministic_order_test.go` | byte-identical merge across runs — keep, extend to cover steps 2 and 5 | — |
 
