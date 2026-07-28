@@ -1,6 +1,8 @@
 ---
 PLAN: "ssr: collapse the CSS provider contract to RootCSS/RenderCSS and drop the widget/style coupling"
 EXECUTOR: jules
+STATUS: running
+SESSION: 14419208521610857518
 ---
 
 > This plan is dispatched via the CodeJob workflow. See skill: **agents-workflow**.
