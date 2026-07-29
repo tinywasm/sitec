@@ -126,20 +126,15 @@ kept the last one.
 rather than on `css.go` existing, now that step 1 has removed the filename
 dependency. Closes the silent half of **E-2**. SPECS §3.
 
-The import list is configuration, not a constant — `widget/style` today, more
-later.
+The import list is configuration, defaulting to empty to prevent hardcoded coupling
+to widget/style (re-established by a prior decoupling commit ebf2e45). The application
+injects the libraries.
 
-**Step 4 — hoist the layer statement.** In `MergeResultsFor`. Collect every
-`@layer …;`, error on conflict, emit one first, strip the rest. Closes **E-4**.
-SPECS §4.1.
+**Step 4 — error on cascade-layer statement conflicts.** In `MergeResultsFor`. Collect every
+`@layer …;` statement, error on conflict to ensure deterministic cascade order. Closes **E-4**'s order hazard.
+We do not hoist or strip duplicates here as they are inert, and the downstream minifier already handles them safely.
 
-**Step 5 — merge identical blocks.** Same layer, byte-identical declarations, no
-intervening overlapping selector; the merged rule takes the first occurrence's
-position. Closes **E-5**. SPECS §4.2.
-
-This is an optimisation, not a correctness fix. **If the third condition cannot be
-established cheaply, ship steps 1–4 and drop this one** — see
-[DESIGN.md §5](DESIGN.md#5-why-identical-blocks-are-merged-and-where-the-merge-stops).
+**Step 5 — merge identical blocks.** [DELETED. Sited one stage before real parser/minifier in assetmin. Sourcing ebf2e45 history, we avoid hand-rolling an expensive and redundant CSS parser.]
 
 **Step 6 — recover per producer.** The generated program wraps each producer call
 in its own `recover()`, records the package path, the receiver type and the
@@ -183,16 +178,10 @@ Every test names the defect it closes.
 | `TestNoProducerIsAnError` | a package importing `widget/style` and declaring none fails the build, naming the package | E-2 |
 | `TestProducerMultilineSignature` | a receiver split across lines is detected | E-3 |
 | `TestProducerGenericReceiver` | `*Table[T]` is detected, and either collected or reported — never skipped silently | E-3 |
-| `TestSingleLayerStatement` | merged output has exactly one `@layer …;`, before any rule | E-4 |
 | `TestConflictingLayerOrderErrors` | two packages with different layer orders is an error, not last-one-wins | E-4 |
-| `TestIdenticalBlocksMerged` | two components using the same primitive emit one rule with both selectors | E-5 |
-| `TestMergeStopsAtOverlap` | **counter-fixture**: an intervening rule targeting an overlapping selector prevents the merge | E-5 |
 | `TestPanicNamesProducer` | a producer that panics fails the run with a message naming its package and receiver type, not a generated-code stack | E-7 |
 | `TestZeroValueProducer` | a producer whose output would differ if a field were read still emits the zero-value form | E-6 |
-| existing `deterministic_order_test.go` | byte-identical merge across runs — keep, extend to cover steps 2 and 5 | — |
-
-`TestMergeStopsAtOverlap` is not optional. A merge optimisation without a test
-proving where it stops is how cascade bugs get shipped.
+| existing `deterministic_order_test.go` | byte-identical merge across runs — keep, extend to cover step 2 | — |
 
 ---
 

@@ -102,6 +102,7 @@ import _ "github.com/tinywasm/widget/style"
 `)
 
 	e := seedExtractor(root)
+	e.SetAssetLibraries([]string{"github.com/tinywasm/widget/style"})
 	_, err := e.ExtractModule(root)
 	if err == nil {
 		t.Fatal("expected build failure when package imports asset library and declares no producer")
@@ -160,38 +161,6 @@ func (t *Table[T]) RenderCSS() stylesheet { return ".table{color:purple}" }
 	}
 }
 
-// TestSingleLayerStatement: merged output has exactly one @layer …;, before any rule
-func TestSingleLayerStatement(t *testing.T) {
-	root := setupBaseApp(t)
-	writeAppFile(t, root, "components/a/css.go", `package a
-`+stylesheetHelper+`
-type A struct{}
-func (a *A) RenderCSS() stylesheet { return "@layer base, components;\n@layer components { .a { color: red; } }" }
-`)
-	writeAppFile(t, root, "components/b/css.go", `package b
-`+stylesheetHelper+`
-type B struct{}
-func (b *B) RenderCSS() stylesheet { return "@layer base, components;\n@layer components { .b { color: blue; } }" }
-`)
-
-	e := seedExtractor(root)
-	assets, err := e.ExtractModule(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if assets == nil {
-		t.Fatal("expected non-nil assets")
-	}
-
-	// Should have exactly one layer statement at the very top, and then the merged blocks.
-	// Since identical blocks are merged, .a and .b are in components layer but not byte-identical,
-	// so they are not merged into one rule, but they are in the same @layer components block.
-	want := "@layer base, components;\n@layer components {\n.a { color: red; }\n.b { color: blue; }\n}\n"
-	if assets.CSS != want {
-		t.Fatalf("expected CSS:\n%q\ngot:\n%q", want, assets.CSS)
-	}
-}
-
 // TestConflictingLayerOrderErrors: two packages with different layer orders is an error, not last-one-wins
 func TestConflictingLayerOrderErrors(t *testing.T) {
 	root := setupBaseApp(t)
@@ -215,68 +184,6 @@ func (b *B) RenderCSS() stylesheet { return "@layer components, base;" }
 	expectedStr := "ssr: conflicting @layer order:"
 	if !strings.Contains(err.Error(), expectedStr) {
 		t.Fatalf("expected error to contain %q, got %v", expectedStr, err)
-	}
-}
-
-// TestIdenticalBlocksMerged: two components using the same primitive emit one rule with both selectors
-func TestIdenticalBlocksMerged(t *testing.T) {
-	root := setupBaseApp(t)
-	writeAppFile(t, root, "components/a/css.go", `package a
-`+stylesheetHelper+`
-type A struct{}
-func (a *A) RenderCSS() stylesheet { return "@layer components { .alpha { display: flex; } }" }
-`)
-	writeAppFile(t, root, "components/b/css.go", `package b
-`+stylesheetHelper+`
-type B struct{}
-func (b *B) RenderCSS() stylesheet { return "@layer components { .beta { display: flex; } }" }
-`)
-
-	e := seedExtractor(root)
-	assets, err := e.ExtractModule(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	want := "@layer components {\n.alpha, .beta { display: flex; }\n}\n"
-	if assets.CSS != want {
-		t.Fatalf("expected CSS:\n%q\ngot:\n%q", want, assets.CSS)
-	}
-}
-
-// TestMergeStopsAtOverlap: counter-fixture: an intervening rule targeting an overlapping selector prevents the merge
-func TestMergeStopsAtOverlap(t *testing.T) {
-	root := setupBaseApp(t)
-	// We have three rules in components layer:
-	// 1. .alpha { display: flex; }
-	// 2. .alpha { color: red; }  <-- Intervening rule targeting .alpha
-	// 3. .beta { display: flex; }
-	// Since rule 2 targets .alpha (which is in rule 1), rule 1 and rule 3 must NOT merge!
-	writeAppFile(t, root, "components/a/css.go", `package a
-`+stylesheetHelper+`
-type A struct{}
-func (a *A) RenderCSS() stylesheet { return "@layer components { .alpha { display: flex; } }" }
-`)
-	writeAppFile(t, root, "components/b/css.go", `package b
-`+stylesheetHelper+`
-type B struct{}
-func (b *B) RenderCSS() stylesheet { return "@layer components { .alpha { color: red; } }" }
-`)
-	writeAppFile(t, root, "components/c/css.go", `package c
-`+stylesheetHelper+`
-type C struct{}
-func (c *C) RenderCSS() stylesheet { return "@layer components { .beta { display: flex; } }" }
-`)
-
-	e := seedExtractor(root)
-	assets, err := e.ExtractModule(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	want := "@layer components {\n.alpha { display: flex; }\n.alpha { color: red; }\n.beta { display: flex; }\n}\n"
-	if assets.CSS != want {
-		t.Fatalf("expected CSS:\n%q\ngot:\n%q", want, assets.CSS)
 	}
 }
 

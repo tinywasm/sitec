@@ -33,7 +33,7 @@ func New(rootDir string) *Extractor {
 		log:            func(...any) {},
 		cache:          newSSRCache(),
 		scanner:        newScanner(),
-		AssetLibraries: []string{"github.com/tinywasm/widget/style"},
+		AssetLibraries: []string{},
 	}
 }
 
