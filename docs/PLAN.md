@@ -3,6 +3,8 @@ PLAN: "fix: surface the disabled producer guard and reject generic receivers by 
 TAG: v0.0.27
 EXECUTOR: jules
 REVIEWER: none
+STATUS: running
+SESSION: 15324244369777097270
 ---
 
 # PLAN — the guarantees that shipped disabled
