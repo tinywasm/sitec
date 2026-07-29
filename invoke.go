@@ -7,7 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
+	"sort"
 	"strings"
 	"text/template"
 
@@ -17,9 +17,9 @@ import (
 
 // CollectorOutput is the structure produced by the generated main.go
 type CollectorOutput struct {
-	Root    string      `json:"root"`
-	Render  string      `json:"render"`
-	HTML    string      `json:"html"`
+	Root    string         `json:"root"`
+	Render  string         `json:"render"`
+	HTML    string         `json:"html"`
 	Scripts []ScriptOutput `json:"scripts"`
 	Icons   *sprite.Sprite `json:"icons"`
 }
@@ -30,26 +30,31 @@ type ScriptOutput struct {
 }
 
 const (
-	aliasPrefix = "m_"
+	aliasPrefix   = "m_"
+	cssSourceFile = "css.go"
 )
 
+type receiverFeature struct {
+	Name      string
+	HasRoot   bool
+	HasRender bool
+	HasHTML   bool
+	HasJS     bool
+	HasIcons  bool
+}
+
 type moduleAlias struct {
-	Path         string
-	Alias        string
-	ReceiverType string
-	HasRoot      bool
-	HasRender    bool
-	HasHTML      bool
-	HasJS        bool
-	HasIcons     bool
+	Path      string
+	Alias     string
+	Receivers []receiverFeature
 }
 
 func (m moduleAlias) HasAnyFeature() bool {
-	return m.HasRoot || m.HasRender || m.HasHTML || m.HasJS || m.HasIcons
+	return len(m.Receivers) > 0
 }
 
 // invokeSSRExtractorOnce generates a combined main.go, runs it once, and returns the aggregated output.
-func invokeSSRExtractorOnce(rootDir string, modules []module) (map[string]CollectorOutput, error) {
+func invokeSSRExtractorOnce(rootDir string, modules []module, scanner *scanner, assetLibraries []string) (map[string]CollectorOutput, error) {
 	// Create a temporary hidden directory within rootDir to ensure we are in the module context.
 	tmpDir := filepath.Join(rootDir, ".ssr_extract")
 	if err := os.MkdirAll(tmpDir, 0755); err != nil {
@@ -59,7 +64,7 @@ func invokeSSRExtractorOnce(rootDir string, modules []module) (map[string]Collec
 
 	// Generate main.go that imports all modules
 	mainFile := filepath.Join(tmpDir, "main.go")
-	if err := GenerateExtractorMain(mainFile, modules); err != nil {
+	if err := GenerateExtractorMain(mainFile, modules, scanner, assetLibraries); err != nil {
 		return nil, fmt.Err("failed to generate main.go", err)
 	}
 
@@ -70,24 +75,64 @@ func invokeSSRExtractorOnce(rootDir string, modules []module) (map[string]Collec
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Err("go run failed", err, stderr.String())
+		errMsg := strings.TrimSpace(stderr.String())
+		if errMsg == "" {
+			errMsg = err.Error()
+		}
+		return nil, fmt.Err(errMsg)
+	}
+
+	type rawCollectorOutput struct {
+		Root    string           `json:"root"`
+		Render  string           `json:"render"`
+		HTML    string           `json:"html"`
+		Scripts []ScriptOutput   `json:"scripts"`
+		Icons   []json.RawMessage `json:"icons"`
 	}
 
 	// Parse the JSON output
-	var results map[string]CollectorOutput
+	var results map[string]rawCollectorOutput
 	if err := json.Unmarshal(out, &results); err != nil {
 		return nil, fmt.Err("failed to parse extractor output", err)
 	}
 
-	return results, nil
+	finalResults := make(map[string]CollectorOutput)
+	for pkg, raw := range results {
+		var mergedSprite *sprite.Sprite
+		for _, rawIcon := range raw.Icons {
+			if len(rawIcon) == 0 || string(rawIcon) == "null" {
+				continue
+			}
+			var sp *sprite.Sprite
+			if err := json.Unmarshal(rawIcon, &sp); err != nil {
+				return nil, fmt.Err("failed to unmarshal icon sprite for", pkg, err)
+			}
+			if sp != nil {
+				if mergedSprite == nil {
+					mergedSprite = sprite.NewSprite()
+				}
+				mergedSprite.Merge(sp)
+			}
+		}
+		finalResults[pkg] = CollectorOutput{
+			Root:    raw.Root,
+			Render:  raw.Render,
+			HTML:    raw.HTML,
+			Scripts: raw.Scripts,
+			Icons:   mergedSprite,
+		}
+	}
+
+	return finalResults, nil
 }
 
 // GenerateExtractorMain writes a main.go file that imports all modules and collects their assets.
-func GenerateExtractorMain(outputFile string, modules []module) error {
+func GenerateExtractorMain(outputFile string, modules []module, scanner *scanner, assetLibraries []string) error {
 	tmpl := template.Must(template.New("extractor").Parse(`package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	{{range .Modules}}
 	{{if .HasAnyFeature}}{{.Alias}} "{{.Path}}"{{end}}
@@ -104,50 +149,73 @@ type ssr struct {
 	Render  string   ` + "`json:\"render\"`" + `
 	HTML    string   ` + "`json:\"html\"`" + `
 	Scripts []script ` + "`json:\"scripts\"`" + `
-	Icons   any      ` + "`json:\"icons\"`" + `
+	Icons   []any    ` + "`json:\"icons\"`" + `
+}
+
+type failure struct {
+	Pkg  string ` + "`json:\"pkg\"`" + `
+	Type string ` + "`json:\"type\"`" + `
+	Err  string ` + "`json:\"err\"`" + `
 }
 
 func main() {
 	all := make(map[string]ssr)
+	var failures []failure
+
 	{{range .Modules}}
 	{{if .HasAnyFeature}}
 	{
 		var s ssr
-		{{if .ReceiverType}}
-		{
-			inst := &{{.Alias}}.{{.ReceiverType}}{}
-			{{if .HasRoot}}s.Root = inst.RootCSS().String(){{end}}
+		{{$alias := .Alias}}
+		{{$path := .Path}}
+		{{range .Receivers}}
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					failures = append(failures, failure{Pkg: "{{$path}}", Type: "{{.Name}}", Err: fmt.Sprint(r)})
+				}
+			}()
+			{{if .Name}}
+			inst := &{{$alias}}.{{.Name}}{}
+			{{if .HasRoot}}s.Root += inst.RootCSS().String(){{end}}
 			{{if .HasRender}}s.Render += inst.RenderCSS().String(){{end}}
-			{{if .HasHTML}}s.HTML = inst.RenderHTML(){{end}}
+			{{if .HasHTML}}s.HTML += inst.RenderHTML(){{end}}
 			{{if .HasJS}}
 			for _, scr := range inst.RenderJS() {
 				s.Scripts = append(s.Scripts, script{Name: scr.Name, Content: scr.Content})
 			}
 			{{end}}
-			{{if .HasIcons}}s.Icons = inst.IconSvg(){{end}}
-		}
-		{{else}}
-		{
-			{{if .HasRoot}}s.Root = {{.Alias}}.RootCSS().String(){{end}}
-			{{if .HasRender}}s.Render += {{.Alias}}.RenderCSS().String(){{end}}
-			{{if .HasHTML}}s.HTML = {{.Alias}}.RenderHTML(){{end}}
+			{{if .HasIcons}}s.Icons = append(s.Icons, inst.IconSvg()){{end}}
+			{{else}}
+			{{if .HasRoot}}s.Root += {{$alias}}.RootCSS().String(){{end}}
+			{{if .HasRender}}s.Render += {{$alias}}.RenderCSS().String(){{end}}
+			{{if .HasHTML}}s.HTML += {{$alias}}.RenderHTML(){{end}}
 			{{if .HasJS}}
-			for _, scr := range {{.Alias}}.RenderJS() {
+			for _, scr := range {{$alias}}.RenderJS() {
 				s.Scripts = append(s.Scripts, script{Name: scr.Name, Content: scr.Content})
 			}
 			{{end}}
-			{{if .HasIcons}}s.Icons = {{.Alias}}.IconSvg(){{end}}
-		}
+			{{if .HasIcons}}s.Icons = append(s.Icons, {{$alias}}.IconSvg()){{end}}
+			{{end}}
+		}()
 		{{end}}
-		all["{{.Path}}"] = s
+		all["{{$path}}"] = s
 	}
 	{{end}}
 	{{end}}
+
+	if len(failures) > 0 {
+		for _, f := range failures {
+			fmt.Fprintf(os.Stderr, "ssr: producer panic in package %s, type %s: %s\n", f.Pkg, f.Type, f.Err)
+		}
+		os.Exit(1)
+	}
+
 	json.NewEncoder(os.Stdout).Encode(all)
 }
 `))
 
-	aliases, err := modulesToAliases(modules)
+	aliases, err := modulesToAliases(modules, scanner, assetLibraries)
 	if err != nil {
 		return err
 	}
@@ -167,37 +235,7 @@ func main() {
 	return tmpl.Execute(f, data)
 }
 
-// Feature detection matches on the METHOD NAME only — never on its return type or
-// the package that type comes from. That is what let IconSvg() switch from
-// *svg.Sprite to *sprite.Sprite without touching a single pattern here, and it is
-// why the generated main.go can keep `Icons any`: it is compiled standalone against
-// whatever the target module's own IconSvg() returns.
-var (
-	reRootCSS    = regexp.MustCompile(`(?m)^func \(\w+ \*?(\w+)\) RootCSS\(\)`)
-	reRenderCSS  = regexp.MustCompile(`(?m)^func \(\w+ \*?(\w+)\) RenderCSS\(\)`)
-	reRenderHTML = regexp.MustCompile(`(?m)^func \(\w+ \*?(\w+)\) RenderHTML\(\)`)
-	reRenderJS   = regexp.MustCompile(`(?m)^func \(\w+ \*?(\w+)\) RenderJS\(\)`)
-	reIconSvg    = regexp.MustCompile(`(?m)^func \(\w+ \*?(\w+)\) IconSvg\(\)`)
-
-	// Fallback regexes for functions without receiver
-	reRootCSSFunc    = regexp.MustCompile(`(?m)^func RootCSS\(\)`)
-	reRenderCSSFunc  = regexp.MustCompile(`(?m)^func RenderCSS\(\)`)
-	reRenderHTMLFunc = regexp.MustCompile(`(?m)^func RenderHTML\(\)`)
-	reRenderJSFunc   = regexp.MustCompile(`(?m)^func RenderJS\(\)`)
-	reIconSvgFunc    = regexp.MustCompile(`(?m)^func IconSvg\(\)`)
-)
-
-// expandToSSRPackages turns each module into the PACKAGES inside it that actually
-// declare SSR sources.
-//
-// A real app keeps its RootCSS() in config/ and its views in modules/x/ — never at
-// the module root. Reading the source files only at the module dir found nothing, so
-// the generated main.go never called RootCSS(): the app shipped with an empty
-// style.css and no icons, and nothing failed loudly.
-//
-// Only packages that carry an SSR source file are returned. That matters: the module
-// root is usually `package main`, and a generated main.go cannot import it.
-func expandToSSRPackages(modules []module) []module {
+func expandToSSRPackages(modules []module, scanner *scanner, assetLibraries []string) []module {
 	var out []module
 	seen := make(map[string]bool)
 
@@ -225,17 +263,43 @@ func expandToSSRPackages(modules []module) []module {
 					return filepath.SkipDir
 				}
 			}
-			if !hasSSRSource(path) {
+
+			feats, err := scanner.scanPackage(path)
+			if err != nil {
 				return nil
 			}
 
-			pkgPath := m.path
-			if rel, err := filepath.Rel(m.dir, path); err == nil && rel != "." {
-				pkgPath = m.path + "/" + filepath.ToSlash(rel)
+			hasProducers := len(feats.Producers) > 0
+
+			var hasCSSGo bool
+			if _, err := os.Stat(filepath.Join(path, cssSourceFile)); err == nil {
+				hasCSSGo = true
 			}
-			if !seen[pkgPath] {
-				seen[pkgPath] = true
-				out = append(out, module{path: pkgPath, dir: path})
+
+			var importedLib string
+			if !hasProducers {
+				for imp := range feats.Imports {
+					for _, lib := range assetLibraries {
+						if imp == lib || strings.HasSuffix(imp, "/"+lib) {
+							importedLib = imp
+							break
+						}
+					}
+					if importedLib != "" {
+						break
+					}
+				}
+			}
+
+			if hasProducers || hasCSSGo || importedLib != "" {
+				pkgPath := m.path
+				if rel, err := filepath.Rel(m.dir, path); err == nil && rel != "." {
+					pkgPath = m.path + "/" + filepath.ToSlash(rel)
+				}
+				if !seen[pkgPath] {
+					seen[pkgPath] = true
+					out = append(out, module{path: pkgPath, dir: path})
+				}
 			}
 			return nil
 		})
@@ -243,25 +307,10 @@ func expandToSSRPackages(modules []module) []module {
 	return out
 }
 
-func hasSSRSource(dir string) bool {
-	for _, f := range ssrSourceFiles {
-		if _, err := os.Stat(filepath.Join(dir, f)); err == nil {
-			return true
-		}
-	}
-	return false
-}
-
-// hasCSSSource reports whether dir carries a css.go at all.
-func hasCSSSource(dir string) bool {
-	_, err := os.Stat(filepath.Join(dir, cssSourceFile))
-	return err == nil
-}
-
-// modulesToAliases converts module information to alias mappings and detects features via regex.
-func modulesToAliases(modules []module) ([]moduleAlias, error) {
+// modulesToAliases converts module information to alias mappings and detects features.
+func modulesToAliases(modules []module, scanner *scanner, assetLibraries []string) ([]moduleAlias, error) {
 	var aliases []moduleAlias
-	for _, m := range expandToSSRPackages(modules) {
+	for _, m := range expandToSSRPackages(modules, scanner, assetLibraries) {
 		parts := strings.Split(m.path, "/")
 		alias := strings.ReplaceAll(parts[len(parts)-1], "-", "_")
 		alias = aliasPrefix + alias
@@ -271,62 +320,70 @@ func modulesToAliases(modules []module) ([]moduleAlias, error) {
 			Alias: alias,
 		}
 
-		// Read all SSR source files to detect features
 		if m.dir != "" {
-			var combinedContent []byte
-			for _, f := range ssrSourceFiles {
-				if content, err := os.ReadFile(filepath.Join(m.dir, f)); err == nil {
-					combinedContent = append(combinedContent, content...)
-					combinedContent = append(combinedContent, '\n')
+			feats, err := scanner.scanPackage(m.dir)
+			if err != nil {
+				return nil, err
+			}
+
+			groups := make(map[string]*receiverFeature)
+			for _, prod := range feats.Producers {
+				rf, ok := groups[prod.ReceiverType]
+				if !ok {
+					rf = &receiverFeature{Name: prod.ReceiverType}
+					groups[prod.ReceiverType] = rf
+				}
+				switch prod.Name {
+				case "RootCSS":
+					rf.HasRoot = true
+				case "RenderCSS":
+					rf.HasRender = true
+				case "RenderHTML":
+					rf.HasHTML = true
+				case "RenderJS":
+					rf.HasJS = true
+				case "IconSvg":
+					rf.HasIcons = true
 				}
 			}
 
-			if len(combinedContent) > 0 {
-				// Detect receiver type
-				ma.ReceiverType = detectReceiverType(combinedContent)
+			var receivers []receiverFeature
+			for _, rf := range groups {
+				receivers = append(receivers, *rf)
+			}
+			sort.Slice(receivers, func(i, j int) bool {
+				return receivers[i].Name < receivers[j].Name
+			})
 
-				if ma.ReceiverType != "" {
-					ma.HasRoot = reRootCSS.Match(combinedContent)
-					ma.HasRender = reRenderCSS.Match(combinedContent)
-					ma.HasHTML = reRenderHTML.Match(combinedContent)
-					ma.HasJS = reRenderJS.Match(combinedContent)
-					ma.HasIcons = reIconSvg.Match(combinedContent)
-				} else {
-					ma.HasRoot = reRootCSSFunc.Match(combinedContent)
-					ma.HasRender = reRenderCSSFunc.Match(combinedContent)
-					ma.HasHTML = reRenderHTMLFunc.Match(combinedContent)
-					ma.HasJS = reRenderJSFunc.Match(combinedContent)
-					ma.HasIcons = reIconSvgFunc.Match(combinedContent)
+			if len(receivers) == 0 {
+				if _, err := os.Stat(filepath.Join(m.dir, cssSourceFile)); err == nil {
+					return nil, fmt.Err("ssr: package", m.path,
+						"has "+cssSourceFile+" but declares no RootCSS() or RenderCSS();",
+						"expected: func (w *T) RenderCSS() *css.Stylesheet")
+				}
+
+				var importedLib string
+				for imp := range feats.Imports {
+					for _, lib := range assetLibraries {
+						if imp == lib || strings.HasSuffix(imp, "/"+lib) {
+							importedLib = imp
+							break
+						}
+					}
+					if importedLib != "" {
+						break
+					}
+				}
+				if importedLib != "" {
+					return nil, fmt.Err("ssr: package", m.path, "imports", importedLib,
+						"but declares no producer; expected: func (w *T) RenderCSS() *css.Stylesheet")
 				}
 			}
 
-			// A css.go that declares no provider is always a defect: the file exists to be
-			// collected, and a misnamed builder is otherwise emitted nowhere and fails silently
-			// — the component renders unstyled and the build stays green.
-			if hasCSSSource(m.dir) && !ma.HasRoot && !ma.HasRender {
-				return nil, fmt.Err("ssr: package", m.path,
-					"has "+cssSourceFile+" but declares no RootCSS() or RenderCSS();",
-					"expected: func (w *T) RenderCSS() *css.Stylesheet")
-			}
+			ma.Receivers = receivers
 		}
 
 		aliases = append(aliases, ma)
 	}
 	return aliases, nil
-}
-
-func detectReceiverType(content []byte) string {
-	regs := []*regexp.Regexp{reRootCSS, reRenderCSS, reRenderHTML, reRenderJS, reIconSvg}
-	var detected string
-	for _, re := range regs {
-		m := re.FindSubmatch(content)
-		if len(m) > 1 {
-			found := string(m[1])
-			if detected != "" && detected != found {
-				continue
-			}
-			detected = found
-		}
-	}
-	return detected
 }

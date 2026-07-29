@@ -6,9 +6,6 @@ conditions and output shape. Structure and reasoning are not repeated here — s
 
 Every rule below is a test assertion.
 
-> **STATUS (remove this note when total detection lands):** §1–§5 specify the
-> target. §6 records what the published code does instead.
-
 ---
 
 ## 1. Producer detection
@@ -70,8 +67,7 @@ All of these fail the build. None may be a warning or a skip.
 | Generated program fails to compile | propagated verbatim, including stderr |
 | A producer panics | propagated, naming the package and type |
 
-"Asset-producing library" is currently `github.com/tinywasm/widget/style`. The
-list is configuration, not a hardcoded constant.
+"Asset-producing library" is configured via `AssetLibraries`. The list defaults to empty to prevent hardcoded coupling to widget/style, and is injected by the application.
 
 ---
 
@@ -79,32 +75,21 @@ list is configuration, not a hardcoded constant.
 
 Applied to the concatenated `CSS` field, in this order.
 
-### 4.1 Layer statement hoist
+### 4.1 Layer statement conflict check
 
 1. Collect every `@layer <list>;` statement.
 2. If two differ, error — §3.
-3. Emit exactly one, as the first line of the output.
-4. Remove all other occurrences.
+
+We do not hoist or strip duplicate statements as they are inert, and the downstream minifier handles them safely.
 
 ### 4.2 Identical-block merge
 
-Two rules merge into one with a combined, sorted selector list when **all** hold:
-
-1. They sit in the same `@layer` block.
-2. Their declaration blocks are byte-identical.
-3. No rule positioned between them targets a selector that either rule also
-   targets.
-
-The merged rule takes the position of the **first** occurrence.
-
-If any condition fails, both rules are emitted unchanged. Rules outside any layer
-are never merged.
+[DELETED] Sited one stage before the real parser/minifier in assetmin, which embeds tdewolff/minify/v2/css. Ssr produces raw assets only.
 
 ### 4.3 Invariants
 
-1. Merging never changes which declaration wins for any element.
+1. Order conflicts in cascade layers are always detected and errored.
 2. Two runs over the same input produce byte-identical output.
-3. The output contains exactly one `@layer …;` statement.
 
 ---
 
@@ -118,31 +103,6 @@ are never merged.
 
 ---
 
-## 6. Published behaviour
-
-What the code does today, kept so the gap is explicit. Each row is a defect
-tracked by the execution plan.
-
-| Area | Published | Target |
-|---|---|---|
-| Files searched | `css.go`, `js.go`, `svg.go`, `html.go` only | every non-test `.go` file (§1.1) |
-| Producers per package | first matching type only — `detectReceiverType` uses `FindSubmatch` | all types (§1.2) |
-| Signature form | single line, single spaces | any gofmt-legal form (§1.2) |
-| Missing-producer error | only when `css.go` exists | keyed on the import (§3) |
-| Layer statement | repeated once per component sheet | hoisted to one (§4.1) |
-| Duplicate blocks | emitted once per component | merged (§4.2) |
-| Zero-value contract | undocumented | §7 |
-
-Reproduction of the two-type case, run against the published detector:
-
-```
-detectReceiverType = "Alpha"
-receivers actually present: 2   (Alpha, Beta)
-```
-
-`Beta` is never instantiated, and the build stays green.
-
----
 
 ## 7. Author contract
 

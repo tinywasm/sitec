@@ -5,10 +5,6 @@ exact detection rules, merge semantics and error conditions are in
 [SPECS.md](SPECS.md); the reasoning and rejected alternatives are in
 [DESIGN.md](DESIGN.md).
 
-> **STATUS (remove this note when total detection lands):** §3 describes the
-> target contract. Published behaviour restricts detection to four filenames and
-> one type per package — see [SPECS.md §6](SPECS.md#6-published-behaviour).
-
 ---
 
 ## 1. What `tinywasm/ssr` is
