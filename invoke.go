@@ -328,6 +328,12 @@ func modulesToAliases(modules []module, scanner *scanner, assetLibraries []strin
 
 			groups := make(map[string]*receiverFeature)
 			for _, prod := range feats.Producers {
+				if prod.IsGeneric {
+					return nil, fmt.Err("ssr: package", m.path,
+						"declares producer", prod.Name+"()",
+						"on generic type", prod.ReceiverType+"[…];",
+						"generic receivers cannot be instantiated as a zero value — use a concrete type")
+				}
 				rf, ok := groups[prod.ReceiverType]
 				if !ok {
 					rf = &receiverFeature{Name: prod.ReceiverType}

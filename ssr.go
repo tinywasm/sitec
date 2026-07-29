@@ -10,7 +10,11 @@ import (
 	"github.com/tinywasm/modfind"
 )
 
-const cssModulePath = "tinywasm/css"
+const (
+	cssModulePath            = "tinywasm/css"
+	noAssetLibrariesWarning = "ssr: no asset libraries configured; packages that import a styling library " +
+		"and declare no producer will NOT fail the build (see SetAssetLibraries)"
+)
 
 type module struct {
 	path string
@@ -47,6 +51,12 @@ func (e *Extractor) SetAssetLibraries(libs []string) {
 }
 
 func (e *Extractor) ExtractModule(moduleDir string) (*assetmin.SSRAssets, error) {
+	e.mu.Lock()
+	if len(e.AssetLibraries) == 0 {
+		e.log(noAssetLibrariesWarning)
+	}
+	e.mu.Unlock()
+
 	rootDir, err := findProjectRoot(moduleDir)
 	if err != nil {
 		return nil, fmt.Err("find project root:", err)
@@ -87,6 +97,12 @@ func (e *Extractor) ExtractModule(moduleDir string) (*assetmin.SSRAssets, error)
 }
 
 func (e *Extractor) ExtractAll() ([]*assetmin.SSRAssets, error) {
+	e.mu.Lock()
+	if len(e.AssetLibraries) == 0 {
+		e.log(noAssetLibrariesWarning)
+	}
+	e.mu.Unlock()
+
 	modules, err := e.discoverModules(e.rootDir)
 	if err != nil {
 		return nil, err

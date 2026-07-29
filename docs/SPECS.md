@@ -66,8 +66,9 @@ All of these fail the build. None may be a warning or a skip.
 | Two packages declare different cascade-layer orders | `ssr: conflicting @layer order: <path-a> declares <a>, <path-b> declares <b>` |
 | Generated program fails to compile | propagated verbatim, including stderr |
 | A producer panics | propagated, naming the package and type |
+| A producer is declared on a generic receiver | `ssr: package <path> declares producer <Name>() on generic type <Type>[…]; generic receivers cannot be instantiated as a zero value — use a concrete type` |
 
-"Asset-producing library" is configured via `AssetLibraries`. The list defaults to empty to prevent hardcoded coupling to widget/style, and is injected by the application.
+"Asset-producing library" is configured via `AssetLibraries`. The list defaults to empty to prevent hardcoded coupling to widget/style, and is injected by the application. While `AssetLibraries` is empty, the missing-producer guard is inert, which is logged as a warning once per extraction run.
 
 ---
 
@@ -104,7 +105,7 @@ We do not hoist or strip duplicate statements as they are inert, and the downstr
 ---
 
 
-## 7. Author contract
+## 6. Author contract
 
 ```go
 func (w *T) RenderCSS() *css.Stylesheet

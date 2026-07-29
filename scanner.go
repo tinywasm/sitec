@@ -16,6 +16,7 @@ import (
 type producerDecl struct {
 	Name         string
 	ReceiverType string
+	IsGeneric    bool
 }
 
 type fileFeatures struct {
@@ -47,6 +48,16 @@ func getReceiverTypeName(expr ast.Expr) string {
 		return getReceiverTypeName(t.X)
 	}
 	return ""
+}
+
+func isGenericReceiver(expr ast.Expr) bool {
+	switch t := expr.(type) {
+	case *ast.StarExpr:
+		return isGenericReceiver(t.X)
+	case *ast.IndexExpr, *ast.IndexListExpr:
+		return true
+	}
+	return false
 }
 
 func (s *scanner) scanFile(path string) (fileFeatures, error) {
@@ -96,13 +107,16 @@ func (s *scanner) scanFile(path string) (fileFeatures, error) {
 		}
 
 		var recvType string
+		var isGen bool
 		if fn.Recv != nil && len(fn.Recv.List) > 0 {
 			recvType = getReceiverTypeName(fn.Recv.List[0].Type)
+			isGen = isGenericReceiver(fn.Recv.List[0].Type)
 		}
 
 		producers = append(producers, producerDecl{
 			Name:         fn.Name.Name,
 			ReceiverType: recvType,
+			IsGeneric:    isGen,
 		})
 	}
 

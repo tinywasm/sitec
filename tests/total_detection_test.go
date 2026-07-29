@@ -153,11 +153,79 @@ func (t *Table[T]) RenderCSS() stylesheet { return ".table{color:purple}" }
 `)
 
 	e := seedExtractor(root)
-	// Because Table[T] is generic, instantiating it as &Table{} in generated main.go will fail to compile.
-	// We want to ensure it is reported as unsupported / fails compilation (never skipped silently).
 	_, err := e.ExtractModule(root)
 	if err == nil {
 		t.Fatal("expected compilation failure for generic receiver")
+	}
+
+	expectedStr := "ssr: package example.com/app/components declares producer RenderCSS() on generic type Table[…]; generic receivers cannot be instantiated as a zero value — use a concrete type"
+	if !strings.Contains(err.Error(), expectedStr) {
+		t.Fatalf("expected error message to contain:\n%q\ngot:\n%q", expectedStr, err.Error())
+	}
+}
+
+// TestEmptyAssetLibrariesIsLogged: an extraction with no configured libraries emits the warning through SetLog; with a list configured it does not
+func TestEmptyAssetLibrariesIsLogged(t *testing.T) {
+	root := setupBaseApp(t)
+	writeAppFile(t, root, "components/css.go", `package components
+`+stylesheetHelper+`
+type Alpha struct{}
+func (a *Alpha) RenderCSS() stylesheet { return ".alpha{color:red}" }
+`)
+
+	// 1. Empty AssetLibraries: warning should be logged
+	var logs []string
+	e1 := seedExtractor(root)
+	e1.SetLog(func(args ...any) {
+		var parts []string
+		for _, arg := range args {
+			if s, ok := arg.(string); ok {
+				parts = append(parts, s)
+			}
+		}
+		logs = append(logs, strings.Join(parts, " "))
+	})
+
+	_, err := e1.ExtractModule(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	warningMsg := "ssr: no asset libraries configured; packages that import a styling library and declare no producer will NOT fail the build (see SetAssetLibraries)"
+	found := false
+	for _, l := range logs {
+		if strings.Contains(l, warningMsg) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected warning %q in logs, got: %v", warningMsg, logs)
+	}
+
+	// 2. Non-empty AssetLibraries: warning should NOT be logged
+	logs = nil
+	e2 := seedExtractor(root)
+	e2.SetAssetLibraries([]string{"github.com/tinywasm/widget/style"})
+	e2.SetLog(func(args ...any) {
+		var parts []string
+		for _, arg := range args {
+			if s, ok := arg.(string); ok {
+				parts = append(parts, s)
+			}
+		}
+		logs = append(logs, strings.Join(parts, " "))
+	})
+
+	_, err = e2.ExtractModule(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, l := range logs {
+		if strings.Contains(l, warningMsg) {
+			t.Fatalf("did not expect warning %q when AssetLibraries is set, but got in logs: %v", warningMsg, logs)
+		}
 	}
 }
 
