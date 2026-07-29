@@ -3,8 +3,9 @@ PLAN: "fix: surface the disabled producer guard and reject generic receivers by 
 TAG: v0.0.27
 EXECUTOR: jules
 REVIEWER: none
-STATUS: running
+STATUS: review
 SESSION: 15324244369777097270
+PR: https://github.com/tinywasm/ssr/pull/12
 ---
 
 # PLAN — the guarantees that shipped disabled
