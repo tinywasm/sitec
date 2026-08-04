@@ -55,6 +55,7 @@ names, on any type, in any non-test file.
 | `RenderHTML()` | `HTML` | prerendered markup |
 | `RenderJS()` | `JS` | scripts |
 | `IconSvg()` | `Icons` | sprite, merged across packages |
+| `Fonts()` | `Fonts` | typeface identity (`font.Declaration`); one per module |
 
 Obligations on the author:
 

@@ -12,16 +12,24 @@ import (
 	"text/template"
 
 	"github.com/tinywasm/fmt"
+	"github.com/tinywasm/font"
 	"github.com/tinywasm/svg/sprite"
 )
 
 // CollectorOutput is the structure produced by the generated main.go
 type CollectorOutput struct {
-	Root    string         `json:"root"`
-	Render  string         `json:"render"`
-	HTML    string         `json:"html"`
-	Scripts []ScriptOutput `json:"scripts"`
-	Icons   *sprite.Sprite `json:"icons"`
+	Root    string           `json:"root"`
+	Render  string           `json:"render"`
+	HTML    string           `json:"html"`
+	Scripts []ScriptOutput   `json:"scripts"`
+	Icons   *sprite.Sprite   `json:"icons"`
+	Fonts   font.Declaration `json:"fonts"`
+}
+
+// fontsWire is the JSON shape for a Declaration (unexported fields cannot marshal).
+type fontsWire struct {
+	Family string `json:"family"`
+	Dir    string `json:"dir"`
 }
 
 type ScriptOutput struct {
@@ -41,6 +49,7 @@ type receiverFeature struct {
 	HasHTML   bool
 	HasJS     bool
 	HasIcons  bool
+	HasFonts  bool
 }
 
 type moduleAlias struct {
@@ -83,11 +92,12 @@ func invokeSSRExtractorOnce(rootDir string, modules []module, scanner *scanner, 
 	}
 
 	type rawCollectorOutput struct {
-		Root    string           `json:"root"`
-		Render  string           `json:"render"`
-		HTML    string           `json:"html"`
-		Scripts []ScriptOutput   `json:"scripts"`
+		Root    string            `json:"root"`
+		Render  string            `json:"render"`
+		HTML    string            `json:"html"`
+		Scripts []ScriptOutput    `json:"scripts"`
 		Icons   []json.RawMessage `json:"icons"`
+		Fonts   fontsWire         `json:"fonts"`
 	}
 
 	// Parse the JSON output
@@ -114,12 +124,17 @@ func invokeSSRExtractorOnce(rootDir string, modules []module, scanner *scanner, 
 				mergedSprite.Merge(sp)
 			}
 		}
+		var fonts font.Declaration
+		if raw.Fonts.Family != "" {
+			fonts = font.Declare(font.Family(raw.Fonts.Family), raw.Fonts.Dir)
+		}
 		finalResults[pkg] = CollectorOutput{
 			Root:    raw.Root,
 			Render:  raw.Render,
 			HTML:    raw.HTML,
 			Scripts: raw.Scripts,
 			Icons:   mergedSprite,
+			Fonts:   fonts,
 		}
 	}
 
@@ -144,12 +159,18 @@ type script struct {
 	Content string ` + "`json:\"content\"`" + `
 }
 
+type fontsWire struct {
+	Family string ` + "`json:\"family\"`" + `
+	Dir    string ` + "`json:\"dir\"`" + `
+}
+
 type ssr struct {
-	Root    string   ` + "`json:\"root\"`" + `
-	Render  string   ` + "`json:\"render\"`" + `
-	HTML    string   ` + "`json:\"html\"`" + `
-	Scripts []script ` + "`json:\"scripts\"`" + `
-	Icons   []any    ` + "`json:\"icons\"`" + `
+	Root    string    ` + "`json:\"root\"`" + `
+	Render  string    ` + "`json:\"render\"`" + `
+	HTML    string    ` + "`json:\"html\"`" + `
+	Scripts []script  ` + "`json:\"scripts\"`" + `
+	Icons   []any     ` + "`json:\"icons\"`" + `
+	Fonts   fontsWire ` + "`json:\"fonts\"`" + `
 }
 
 type failure struct {
@@ -186,6 +207,12 @@ func main() {
 			}
 			{{end}}
 			{{if .HasIcons}}s.Icons = append(s.Icons, inst.IconSvg()){{end}}
+			{{if .HasFonts}}
+			{
+				d := inst.Fonts()
+				s.Fonts = fontsWire{Family: string(d.Family()), Dir: d.Dir()}
+			}
+			{{end}}
 			{{else}}
 			{{if .HasRoot}}s.Root += {{$alias}}.RootCSS().String(){{end}}
 			{{if .HasRender}}s.Render += {{$alias}}.RenderCSS().String(){{end}}
@@ -196,6 +223,12 @@ func main() {
 			}
 			{{end}}
 			{{if .HasIcons}}s.Icons = append(s.Icons, {{$alias}}.IconSvg()){{end}}
+			{{if .HasFonts}}
+			{
+				d := {{$alias}}.Fonts()
+				s.Fonts = fontsWire{Family: string(d.Family()), Dir: d.Dir()}
+			}
+			{{end}}
 			{{end}}
 		}()
 		{{end}}
@@ -350,6 +383,8 @@ func modulesToAliases(modules []module, scanner *scanner, assetLibraries []strin
 					rf.HasJS = true
 				case "IconSvg":
 					rf.HasIcons = true
+				case "Fonts":
+					rf.HasFonts = true
 				}
 			}
 

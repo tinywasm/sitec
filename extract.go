@@ -75,6 +75,7 @@ func extractAssetsForModule(m module, rootDir string, allModules []module, binCa
 		JS:         scripts,
 		HTML:       output.HTML,
 		Icons:      output.Icons,
+		Fonts:      output.Fonts,
 	}, nil
 }
 
@@ -113,6 +114,7 @@ func MergeResultsFor(modulePath string, results map[string]CollectorOutput) (Col
 
 	var merged CollectorOutput
 	merged.Icons = sprite.NewSprite()
+	var fontsFrom string
 
 	for _, p := range paths {
 		out := results[p]
@@ -122,6 +124,14 @@ func MergeResultsFor(modulePath string, results map[string]CollectorOutput) (Col
 		merged.Scripts = append(merged.Scripts, out.Scripts...)
 		if out.Icons != nil {
 			merged.Icons.Merge(out.Icons)
+		}
+		if out.Fonts.Family() != "" {
+			if fontsFrom != "" {
+				return CollectorOutput{}, false, fmt.Err("ssr: multiple Fonts() declarations:",
+					fontsFrom, "and", p, "— only one package per module may declare Fonts()")
+			}
+			merged.Fonts = out.Fonts
+			fontsFrom = p
 		}
 	}
 

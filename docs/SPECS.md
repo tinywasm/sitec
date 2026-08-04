@@ -13,7 +13,7 @@ Every rule below is a test assertion.
 A **producer** is a method or function with one of these names, regardless of
 signature, receiver type or return type:
 
-`RootCSS`, `RenderCSS`, `RenderHTML`, `RenderJS`, `IconSvg`
+`RootCSS`, `RenderCSS`, `RenderHTML`, `RenderJS`, `IconSvg`, `Fonts`
 
 ### 1.1 Scope of the search
 
@@ -50,6 +50,7 @@ is what keeps output deterministic when a package declares several.
 | `RenderHTML()` | `HTML` | string concatenation |
 | `RenderJS()` | `JS` | slice append |
 | `IconSvg()` | `Icons` | `sprite.Merge` |
+| `Fonts()` | `Fonts` | first wins; second is an error (§3) |
 
 A module's result includes its own package **and every package beneath it**,
 merged in ascending package-path order.
@@ -67,6 +68,7 @@ All of these fail the build. None may be a warning or a skip.
 | Generated program fails to compile | propagated verbatim, including stderr |
 | A producer panics | propagated, naming the package and type |
 | A producer is declared on a generic receiver | `ssr: package <path> declares producer <Name>() on generic type <Type>[…]; generic receivers cannot be instantiated as a zero value — use a concrete type` |
+| Two packages under one module declare `Fonts()` | `ssr: multiple Fonts() declarations: <path-a> and <path-b> — only one package per module may declare Fonts()` |
 
 "Asset-producing library" is configured via `AssetLibraries`. The list defaults to empty to prevent hardcoded coupling to widget/style, and is injected by the application. While `AssetLibraries` is empty, the missing-producer guard is inert, which is logged as a warning once per extraction run.
 

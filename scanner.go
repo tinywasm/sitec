@@ -95,6 +95,7 @@ func (s *scanner) scanFile(path string) (fileFeatures, error) {
 		"RenderHTML": true,
 		"RenderJS":   true,
 		"IconSvg":    true,
+		"Fonts":      true,
 	}
 
 	for _, decl := range f.Decls {
