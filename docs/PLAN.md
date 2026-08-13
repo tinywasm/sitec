@@ -2,6 +2,8 @@
 PLAN: "feat: sitec — compilador de sitio con responsabilidad única"
 EXECUTOR: jules
 REVIEWER: none
+STATUS: running
+SESSION: 4779389867153322203
 ---
 
 > Este plan se despacha con el flujo CodeJob. Ver skill: agents-workflow.
