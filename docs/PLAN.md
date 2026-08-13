@@ -2,6 +2,8 @@
 PLAN: "fix: extract only the packages the built artifact actually uses"
 EXECUTOR: jules
 REVIEWER: none
+STATUS: running
+SESSION: 4184147406134010970
 ---
 
 > This plan is dispatched via the CodeJob workflow. See skill: agents-workflow.
