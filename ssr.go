@@ -7,6 +7,7 @@ import (
 
 	"github.com/tinywasm/assetmin"
 	"github.com/tinywasm/fmt"
+	"github.com/tinywasm/js"
 	"github.com/tinywasm/modfind"
 )
 
@@ -14,6 +15,7 @@ const (
 	cssModulePath            = "tinywasm/css"
 	noAssetLibrariesWarning = "ssr: no asset libraries configured; packages that import a styling library " +
 		"and declare no producer will NOT fail the build (see SetAssetLibraries)"
+	errNoAssetsExtracted     = "ssr: no assets extracted from any module; the stylesheet would be empty"
 )
 
 type module struct {
@@ -29,6 +31,8 @@ type Extractor struct {
 	scanner        *scanner
 	AssetLibraries []string
 	mu             sync.Mutex
+	lister         GraphLister
+	warnOnce       *sync.Once
 }
 
 func New(rootDir string) *Extractor {
@@ -38,22 +42,51 @@ func New(rootDir string) *Extractor {
 		cache:          newSSRCache(),
 		scanner:        newScanner(),
 		AssetLibraries: []string{},
+		lister:         goListDeps,
+		warnOnce:       &sync.Once{},
 	}
 }
 
 func (e *Extractor) SetLog(fn func(...any))     { e.log = fn }
 func (e *Extractor) SetFinder(f *modfind.Finder) { e.finder = f }
+func (e *Extractor) SetLister(lister GraphLister) { e.lister = lister }
 
 func (e *Extractor) SetAssetLibraries(libs []string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.AssetLibraries = libs
+	e.warnOnce = &sync.Once{}
+}
+
+func (e *Extractor) results(rootDir string, modules []module) (map[string]CollectorOutput, error) {
+	hashKey, err := computeModuleHashSet(modules)
+	if err != nil {
+		return nil, fmt.Err("failed to compute module hash", err)
+	}
+
+	e.mu.Lock()
+	cachedResults, hasCached := e.cache.get(hashKey)
+	if !hasCached {
+		results, err := invokeSSRExtractorOnce(rootDir, modules, e.scanner, e.AssetLibraries, e.lister, e.log)
+		if err != nil {
+			e.mu.Unlock()
+			return nil, err
+		}
+
+		e.cache.set(hashKey, results)
+		cachedResults = results
+	}
+	e.mu.Unlock()
+
+	return cachedResults, nil
 }
 
 func (e *Extractor) ExtractModule(moduleDir string) (*assetmin.SSRAssets, error) {
 	e.mu.Lock()
 	if len(e.AssetLibraries) == 0 {
-		e.log(noAssetLibrariesWarning)
+		e.warnOnce.Do(func() {
+			e.log(noAssetLibrariesWarning)
+		})
 	}
 	e.mu.Unlock()
 
@@ -87,10 +120,43 @@ func (e *Extractor) ExtractModule(moduleDir string) (*assetmin.SSRAssets, error)
 			target = module{path: moduleDir, dir: moduleDir}
 		}
 	}
-	a, err := extractAssetsForModule(target, rootDir, modules, "", e.cache, e.scanner, e.AssetLibraries, e.log, &e.mu)
-	if err != nil || a == nil {
+
+	modulesForExtract := modules
+	if !containsModule(modules, target) {
+		modulesForExtract = append(append([]module(nil), modules...), target)
+	}
+
+	cachedResults, err := e.results(rootDir, modulesForExtract)
+	if err != nil {
 		return nil, err
 	}
+
+	output, ok, err := MergeResultsFor(target.path, cachedResults)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, nil
+	}
+
+	scripts := make([]*js.Script, 0, len(output.Scripts))
+	for _, s := range output.Scripts {
+		scripts = append(scripts, &js.Script{
+			Name:    s.Name,
+			Content: s.Content,
+		})
+	}
+
+	a := &assetmin.SSRAssets{
+		ModuleName: target.path,
+		RootCSS:    output.Root,
+		CSS:        output.Render,
+		JS:         scripts,
+		HTML:       output.HTML,
+		Icons:      output.Icons,
+		Fonts:      output.Fonts,
+	}
+
 	a.IsRoot = isRootDir(target.dir, e.rootDir)
 	a.IsFramework = isFrameworkModule(target.path)
 	return a, nil
@@ -99,7 +165,9 @@ func (e *Extractor) ExtractModule(moduleDir string) (*assetmin.SSRAssets, error)
 func (e *Extractor) ExtractAll() ([]*assetmin.SSRAssets, error) {
 	e.mu.Lock()
 	if len(e.AssetLibraries) == 0 {
-		e.log(noAssetLibrariesWarning)
+		e.warnOnce.Do(func() {
+			e.log(noAssetLibrariesWarning)
+		})
 	}
 	e.mu.Unlock()
 
@@ -107,19 +175,47 @@ func (e *Extractor) ExtractAll() ([]*assetmin.SSRAssets, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	cachedResults, err := e.results(e.rootDir, modules)
+	if err != nil {
+		return nil, err
+	}
+
 	var all []*assetmin.SSRAssets
 	for _, m := range modules {
-		a, err := extractAssetsForModule(m, e.rootDir, modules, "", e.cache, e.scanner, e.AssetLibraries, e.log, &e.mu)
+		output, ok, err := MergeResultsFor(m.path, cachedResults)
 		if err != nil {
-			e.log("ssr extract error:", m.path, err)
-			continue
+			return nil, err
 		}
-		if a != nil {
+		if ok {
+			scripts := make([]*js.Script, 0, len(output.Scripts))
+			for _, s := range output.Scripts {
+				scripts = append(scripts, &js.Script{
+					Name:    s.Name,
+					Content: s.Content,
+				})
+			}
+
+			a := &assetmin.SSRAssets{
+				ModuleName: m.path,
+				RootCSS:    output.Root,
+				CSS:        output.Render,
+				JS:         scripts,
+				HTML:       output.HTML,
+				Icons:      output.Icons,
+				Fonts:      output.Fonts,
+			}
+
 			a.IsRoot = isRootDir(m.dir, e.rootDir)
 			a.IsFramework = isFrameworkModule(m.path)
 			all = append(all, a)
 		}
 	}
+
+	if len(all) == 0 {
+		return nil, fmt.Err(errNoAssetsExtracted)
+	}
+
 	return all, nil
 }
 

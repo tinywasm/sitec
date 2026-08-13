@@ -55,7 +55,7 @@ require example.com/layout v0.0.0
 
 replace example.com/layout => ../layout
 `)
-	write(filepath.Join(appDir, "main.go"), "package main\n\nfunc main() {}\n")
+	write(filepath.Join(appDir, "main.go"), "package main\n\nimport _ \"example.com/layout/platformd\"\n\nfunc main() {}\n")
 
 	e := ssr.New(appDir)
 	e.SetLog(t.Log)

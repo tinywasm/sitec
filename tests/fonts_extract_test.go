@@ -38,6 +38,14 @@ func fontModuleDir(t *testing.T) string {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(abs, "go.mod")); err != nil {
+		gopath := os.Getenv("GOPATH")
+		if gopath == "" {
+			gopath = filepath.Join(os.Getenv("HOME"), "go")
+		}
+		candidate := filepath.Join(gopath, "pkg", "mod", "github.com", "tinywasm", "font@v0.0.4")
+		if _, err2 := os.Stat(filepath.Join(candidate, "go.mod")); err2 == nil {
+			return candidate
+		}
 		t.Fatalf("font module not found at %s: %v", abs, err)
 	}
 	return abs

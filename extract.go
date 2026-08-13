@@ -6,78 +6,12 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 
-	"github.com/tinywasm/assetmin"
 	"github.com/tinywasm/fmt"
-	"github.com/tinywasm/js"
 	"github.com/tinywasm/svg/sprite"
 )
 
 var reLayer = regexp.MustCompile(`@layer\s+([^;{]+);`)
-
-// extractAssetsForModule is the internal implementation that takes a resolved module.
-func extractAssetsForModule(m module, rootDir string, allModules []module, binCachePath string, cache *ssrCache, scanner *scanner, assetLibraries []string, log func(...any), mu *sync.Mutex) (*assetmin.SSRAssets, error) {
-	// Ensure m is in the extractor's module set, so the generated main.go
-	// imports it and the results map carries an entry for m.path.
-	modulesForExtract := allModules
-	if !containsModule(allModules, m) {
-		modulesForExtract = append(append([]module(nil), allModules...), m)
-	}
-
-	// Compute hash of all modules to check global cache
-	hashKey, err := computeModuleHashSet(modulesForExtract)
-	if err != nil {
-		return nil, fmt.Err("failed to compute module hash", err)
-	}
-
-	// Check cache
-	mu.Lock()
-	cachedResults, hasCached := cache.get(hashKey)
-	if !hasCached {
-		// Do compile-and-invoke
-		results, err := invokeSSRExtractorOnce(rootDir, modulesForExtract, scanner, assetLibraries)
-		if err != nil {
-			mu.Unlock()
-			return nil, err
-		}
-
-		// Cache the results
-		cache.set(hashKey, results)
-		cachedResults = results
-	}
-	mu.Unlock()
-
-	// Collect the results for the requested module AND for the packages inside it.
-	// The assets of an app live in its packages (config/, modules/x/), never at the
-	// module root — asking only for m.path returned nothing and the app shipped with
-	// an empty stylesheet.
-	output, ok, err := MergeResultsFor(m.path, cachedResults)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, nil
-	}
-
-	scripts := make([]*js.Script, 0, len(output.Scripts))
-	for _, s := range output.Scripts {
-		scripts = append(scripts, &js.Script{
-			Name:    s.Name,
-			Content: s.Content,
-		})
-	}
-
-	return &assetmin.SSRAssets{
-		ModuleName: m.path,
-		RootCSS:    output.Root,
-		CSS:        output.Render,
-		JS:         scripts,
-		HTML:       output.HTML,
-		Icons:      output.Icons,
-		Fonts:      output.Fonts,
-	}, nil
-}
 
 // MergeResultsFor gathers the module's own assets plus those of every package under
 // it, in a stable order so the emitted CSS does not shuffle between runs.

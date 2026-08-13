@@ -3,6 +3,7 @@ package ssr_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tinywasm/modfind"
@@ -16,11 +17,13 @@ func TestExtractAll_Empty(t *testing.T) {
 	f := modfind.New()
 	f.Seed(root, []modfind.Module{{Path: "example.com/demo", Dir: root}})
 	e.SetFinder(f)
-	all, err := e.ExtractAll()
-	if err != nil {
-		t.Fatal(err)
+	_, err := e.ExtractAll()
+	if err == nil {
+		t.Fatal("expected error on empty result set")
 	}
-	_ = all
+	if !strings.Contains(err.Error(), "no assets extracted from any module") {
+		t.Errorf("unexpected error: %v", err)
+	}
 }
 
 func TestExtractModule_NoSSRFiles(t *testing.T) {

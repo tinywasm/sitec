@@ -87,7 +87,7 @@ require example.com/tinywasm/css v0.0.0
 
 replace example.com/tinywasm/css => ../tinywasm-css
 `)
-	write(filepath.Join(appDir, "main.go"), "package main\n\nfunc main() {}\n")
+	write(filepath.Join(appDir, "main.go"), "package main\n\nimport _ \"example.com/tinywasm/css\"\n\nfunc main() {}\n")
 	write(filepath.Join(appDir, "config", "css.go"), `//go:build !wasm
 
 package config

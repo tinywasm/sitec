@@ -38,8 +38,10 @@ type ScriptOutput struct {
 }
 
 const (
-	aliasPrefix   = "m_"
-	cssSourceFile = "css.go"
+	aliasPrefix           = "m_"
+	cssSourceFile         = "css.go"
+	skippedUnreachableFmt = "ssr: %d package(s) not in the build graph were skipped"
+	mainPackageName       = "main"
 )
 
 type receiverFeature struct {
@@ -63,7 +65,7 @@ func (m moduleAlias) HasAnyFeature() bool {
 }
 
 // invokeSSRExtractorOnce generates a combined main.go, runs it once, and returns the aggregated output.
-func invokeSSRExtractorOnce(rootDir string, modules []module, scanner *scanner, assetLibraries []string) (map[string]CollectorOutput, error) {
+func invokeSSRExtractorOnce(rootDir string, modules []module, scanner *scanner, assetLibraries []string, lister GraphLister, log func(...any)) (map[string]CollectorOutput, error) {
 	// Create a temporary hidden directory within rootDir to ensure we are in the module context.
 	tmpDir := filepath.Join(rootDir, ".ssr_extract")
 	if err := os.MkdirAll(tmpDir, 0755); err != nil {
@@ -71,9 +73,11 @@ func invokeSSRExtractorOnce(rootDir string, modules []module, scanner *scanner, 
 	}
 	defer os.RemoveAll(tmpDir)
 
+	reach := computeReachability(rootDir, lister, log)
+
 	// Generate main.go that imports all modules
 	mainFile := filepath.Join(tmpDir, "main.go")
-	if err := GenerateExtractorMain(mainFile, modules, scanner, assetLibraries); err != nil {
+	if err := GenerateExtractorMain(mainFile, modules, scanner, assetLibraries, reach, log); err != nil {
 		return nil, fmt.Err("failed to generate main.go", err)
 	}
 
@@ -142,7 +146,7 @@ func invokeSSRExtractorOnce(rootDir string, modules []module, scanner *scanner, 
 }
 
 // GenerateExtractorMain writes a main.go file that imports all modules and collects their assets.
-func GenerateExtractorMain(outputFile string, modules []module, scanner *scanner, assetLibraries []string) error {
+func GenerateExtractorMain(outputFile string, modules []module, scanner *scanner, assetLibraries []string, reach reachability, log func(...any)) error {
 	tmpl := template.Must(template.New("extractor").Parse(`package main
 
 import (
@@ -248,7 +252,7 @@ func main() {
 }
 `))
 
-	aliases, err := modulesToAliases(modules, scanner, assetLibraries)
+	aliases, err := modulesToAliases(modules, scanner, assetLibraries, reach, log)
 	if err != nil {
 		return err
 	}
@@ -302,6 +306,11 @@ func expandToSSRPackages(modules []module, scanner *scanner, assetLibraries []st
 				return nil
 			}
 
+			// A package main cannot be imported, so it can never contribute SSR assets.
+			if feats.PkgName == mainPackageName {
+				return nil // do not select; keep walking subdirectories
+			}
+
 			hasProducers := len(feats.Producers) > 0
 
 			var hasCSSGo bool
@@ -341,9 +350,29 @@ func expandToSSRPackages(modules []module, scanner *scanner, assetLibraries []st
 }
 
 // modulesToAliases converts module information to alias mappings and detects features.
-func modulesToAliases(modules []module, scanner *scanner, assetLibraries []string) ([]moduleAlias, error) {
+func modulesToAliases(modules []module, scanner *scanner, assetLibraries []string, reach reachability, log func(...any)) ([]moduleAlias, error) {
 	var aliases []moduleAlias
-	for _, m := range expandToSSRPackages(modules, scanner, assetLibraries) {
+	expanded := expandToSSRPackages(modules, scanner, assetLibraries)
+
+	var filtered []module
+	var skippedCount int
+	for _, m := range expanded {
+		if reach.known {
+			if !reach.set[m.path] {
+				skippedCount++
+				continue
+			}
+		}
+		filtered = append(filtered, m)
+	}
+
+	if skippedCount > 0 {
+		if log != nil {
+			log(skippedUnreachableFmt, skippedCount)
+		}
+	}
+
+	for _, m := range filtered {
 		parts := strings.Split(m.path, "/")
 		alias := strings.ReplaceAll(parts[len(parts)-1], "-", "_")
 		alias = aliasPrefix + alias

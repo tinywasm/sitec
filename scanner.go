@@ -21,6 +21,7 @@ type producerDecl struct {
 
 type fileFeatures struct {
 	mtime     time.Time
+	pkgName   string          // f.Name.Name from the parsed file
 	imports   map[string]bool
 	producers []producerDecl
 }
@@ -60,6 +61,12 @@ func isGenericReceiver(expr ast.Expr) bool {
 	return false
 }
 
+// scanFile parses the Go file.
+// Note: Build tags are not evaluated by the scanner. scanFile parses with
+// go/parser in mode 0, which reads the file regardless of its //go:build line.
+// A WASM-only file declaring a producer is therefore detected and imported into
+// the !wasm extractor, where it would fail to compile if not for Stage 1 keeping
+// such unreachable packages out of scope. Do NOT try to evaluate build constraints here.
 func (s *scanner) scanFile(path string) (fileFeatures, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -123,6 +130,7 @@ func (s *scanner) scanFile(path string) (fileFeatures, error) {
 
 	features := fileFeatures{
 		mtime:     info.ModTime(),
+		pkgName:   f.Name.Name,
 		imports:   imports,
 		producers: producers,
 	}
@@ -135,6 +143,7 @@ func (s *scanner) scanFile(path string) (fileFeatures, error) {
 }
 
 type packageFeatures struct {
+	PkgName   string
 	Imports   map[string]bool
 	Producers []producerDecl
 }
@@ -158,6 +167,9 @@ func (s *scanner) scanPackage(dir string) (packageFeatures, error) {
 			feats, err := s.scanFile(path)
 			if err != nil {
 				continue // Skip/ignore file error
+			}
+			if agg.PkgName == "" {
+				agg.PkgName = feats.pkgName
 			}
 			for imp := range feats.imports {
 				agg.Imports[imp] = true
