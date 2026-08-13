@@ -1,0 +1,275 @@
+package sitec
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"slices"
+	"sort"
+	"sync"
+
+	"github.com/tdewolff/minify/v2"
+)
+
+// represents a file handler for processing and minifying assets
+type asset struct {
+	fileOutputName string                 // eg: main.js,style.css,index.html,icons.svg
+	outputPath     string                 // full path to output file eg: web/public/main.js
+	urlPath        string                 // HTTP route path, e.g., "/assets/style.css" or "/style.css"
+	mediatype      string                 // eg: "text/html", "text/css", "image/svg+xml"
+	initCode       func() (string, error) // eg js: "console.log('hello world')". eg: css: "body{color:red}" eg: html: "<html></html>". eg: svg: "<svg></svg>"
+
+	contentOpen   []*ContentFile // eg: files from theme folder
+	contentMiddle []*ContentFile //eg: files from modules folder
+	contentClose  []*ContentFile // eg: files js from testin or end tags
+
+	dynamicContent []func() []byte // Dynamic content providers
+
+	mu             sync.RWMutex // Mutex for thread-safe access to the cache
+	cachedMinified []byte       // Minified content ready to serve
+	cacheValid     bool         // True if cache matches current content
+}
+
+// ContentFile represents a file with its path and content
+type ContentFile struct {
+	Path    string // eg: modules/module1/file.js
+	Content []byte /// eg: "console.log('hello world')"
+}
+
+// AddDynamicContent adds a function that generates content dynamically during WriteContent
+func (h *asset) AddDynamicContent(fn func() []byte) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.dynamicContent = append(h.dynamicContent, fn)
+	h.cacheValid = false
+}
+
+// WriteToDisk writes the content file to disk at the specified path
+// It creates parent directories if they don't exist
+func (f *ContentFile) WriteToDisk() error {
+	// Create parent directories if they don't exist
+	dir := filepath.Dir(f.Path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	// Write content to the file
+	return os.WriteFile(f.Path, f.Content, 0644)
+}
+
+// newAssetFile creates a new asset with the specified parameters
+func newAssetFile(outputName, mediaType string, ac *Config, initCode func() (string, error)) *asset {
+	handler := &asset{
+		fileOutputName: outputName,
+		outputPath:     filepath.Join(ac.OutputDir, outputName),
+		mediatype:      mediaType,
+		initCode:       initCode,
+		contentOpen:    []*ContentFile{},
+		contentMiddle:  []*ContentFile{},
+		contentClose:   []*ContentFile{},
+	}
+
+	return handler
+}
+
+// AddContentMiddle safely appends content to the middle section under a lock
+func (h *asset) AddContentMiddle(path string, content []byte) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.contentMiddle = append(h.contentMiddle, &ContentFile{Path: path, Content: content})
+	h.cacheValid = false
+}
+
+// UpdateContent updates the asset content in the default "middle" slot.
+func (h *asset) UpdateContent(filePath, event string, f *ContentFile) error {
+	return h.UpdateContentInSlot(filePath, event, f, "middle")
+}
+
+// UpdateContentInSlot updates the asset content in the specified slot ("open", "middle", "close").
+func (h *asset) UpdateContentInSlot(filePath, event string, f *ContentFile, slot string) (err error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.cacheValid = false // direct field access under lock instead of calling InvalidateCache which locks again
+
+	var filesToUpdate *[]*ContentFile
+	switch slot {
+	case "open":
+		filesToUpdate = &h.contentOpen
+	case "close":
+		filesToUpdate = &h.contentClose
+	default:
+		filesToUpdate = &h.contentMiddle
+	}
+
+	switch event {
+	case "create", "write", "modify":
+
+		if idx := findFileIndex(*filesToUpdate, filePath); idx != -1 {
+			// Exact path exists: replace content
+			(*filesToUpdate)[idx] = f
+		} else {
+			// File with this path not found. This can happen in a rename flow where
+			// a rename event is sent for the old file and a create event for the
+			// new file arrives afterwards. Instead of blindly appending and
+			// creating a duplicate, try to detect if this new file corresponds
+			// to an existing memory entry (rename case) by comparing content.
+			replaced := false
+			for i, existing := range *filesToUpdate {
+				if bytes.Equal(existing.Content, f.Content) {
+					// Reuse existing entry: update its path and content
+					(*filesToUpdate)[i].Path = filePath
+					(*filesToUpdate)[i].Content = f.Content
+					replaced = true
+					break
+				}
+			}
+			if !replaced {
+				// No match found: insert at the Path-sorted position so a slot's order
+				// depends only on the set of modules present, never on the order in
+				// which their registration events arrived (ScheduleSSRLoad's background
+				// scan and a watcher-driven reload can race on process boot).
+				idx := sort.Search(len(*filesToUpdate), func(i int) bool {
+					return (*filesToUpdate)[i].Path >= filePath
+				})
+				*filesToUpdate = append(*filesToUpdate, nil)
+				copy((*filesToUpdate)[idx+1:], (*filesToUpdate)[idx:])
+				(*filesToUpdate)[idx] = f
+			}
+		}
+	case "rename":
+	case "remove", "delete":
+		if idx := findFileIndex(*filesToUpdate, filePath); idx != -1 {
+			*filesToUpdate = slices.Delete((*filesToUpdate), idx, idx+1)
+		}
+	}
+
+	return
+}
+
+func findFileIndex(files []*ContentFile, filePath string) int {
+	for i, f := range files {
+		if f.Path == filePath {
+			return i
+		}
+	}
+	return -1
+}
+
+// WriteContent processes the asset content and writes it to the provided buffer
+func (h *asset) WriteContent(buf *bytes.Buffer) {
+	if h.initCode != nil {
+		initCode, err := h.initCode()
+		if err == nil {
+			buf.WriteString(initCode)
+		}
+	}
+
+	// Write open content first
+	for _, f := range h.contentOpen {
+		buf.Write(f.Content)
+		buf.WriteString("\n") // Add newline between files
+	}
+
+	// Write dynamic content
+	for _, fn := range h.dynamicContent {
+		buf.Write(fn())
+		buf.WriteString("\n")
+	}
+
+	// Then write middle content files
+	for _, f := range h.contentMiddle {
+		buf.Write(f.Content)
+		buf.WriteString("\n") // Add newline between files
+	}
+
+	// Then write close content files
+	for _, f := range h.contentClose {
+		buf.Write(f.Content)
+		buf.WriteString("\n") // Add newline between files
+	}
+}
+
+// InvalidateCache marks the asset's cache as invalid.
+// It acquires a write lock to ensure thread safety.
+func (h *asset) InvalidateCache() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cacheValid = false
+}
+
+// RegenerateCache generates the minified content for the asset and updates the cache.
+// It acquires a write lock to ensure thread-safe modification of the cache.
+func (h *asset) RegenerateCache(minifier *minify.M) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	var buf bytes.Buffer
+	h.WriteContent(&buf)
+
+	if minifier == nil {
+		h.cachedMinified = buf.Bytes()
+		h.cacheValid = true
+		return nil
+	}
+
+	minified, err := minifier.Bytes(h.mediatype, buf.Bytes())
+	if err != nil {
+		return err
+	}
+
+	h.cachedMinified = minified
+	h.cacheValid = true
+	return nil
+}
+
+// GetCachedMinified returns a copy of the cached minified content in a thread-safe manner.
+func (h *asset) GetCachedMinified() []byte {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.cachedMinified
+}
+
+// GetMinifiedContent returns the minified content of the asset, regenerating the cache if necessary.
+// It uses a double-checked locking pattern with a read-write mutex for thread-safe access.
+func (h *asset) GetMinifiedContent(minifier *minify.M) ([]byte, error) {
+	// First, try with a read lock to check if the cache is valid.
+	h.mu.RLock()
+	if h.cacheValid {
+		defer h.mu.RUnlock()
+		return h.cachedMinified, nil
+	}
+	h.mu.RUnlock()
+
+	// If the cache is invalid, acquire a write lock to regenerate it.
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	// It's possible another goroutine regenerated the cache while we were waiting for the write lock.
+	// So, we need to double-check if the cache is still invalid.
+	if h.cacheValid {
+		return h.cachedMinified, nil
+	}
+
+	var buf bytes.Buffer
+	h.WriteContent(&buf)
+
+	if minifier == nil {
+		h.cachedMinified = buf.Bytes()
+		h.cacheValid = true
+		return h.cachedMinified, nil
+	}
+
+	minified, err := minifier.Bytes(h.mediatype, buf.Bytes())
+	if err != nil {
+		return nil, err
+	}
+
+	h.cachedMinified = minified
+	h.cacheValid = true
+	return h.cachedMinified, nil
+}
+
+// URLPath returns the URL path for the asset.
+func (h *asset) GetURLPath() string {
+	return h.urlPath
+}

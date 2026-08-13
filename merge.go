@@ -1,4 +1,4 @@
-package ssr
+package sitec
 
 import (
 	"os"
@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/tinywasm/assetmin"
 	"github.com/tinywasm/fmt"
 	"github.com/tinywasm/js"
 	"github.com/tinywasm/svg/sprite"
@@ -17,7 +16,7 @@ import (
 var reLayer = regexp.MustCompile(`@layer\s+([^;{]+);`)
 
 // extractAssetsForModule is the internal implementation that takes a resolved module.
-func extractAssetsForModule(m module, rootDir string, allModules []module, binCachePath string, cache *ssrCache, scanner *scanner, assetLibraries []string, log func(...any), mu *sync.Mutex) (*assetmin.SSRAssets, error) {
+func extractAssetsForModule(m module, rootDir string, allModules []module, binCachePath string, cache *ssrCache, scanner *scanner, assetLibraries []string, log func(...any), mu *sync.Mutex) (*Assets, error) {
 	// Ensure m is in the extractor's module set, so the generated main.go
 	// imports it and the results map carries an entry for m.path.
 	modulesForExtract := allModules
@@ -68,7 +67,7 @@ func extractAssetsForModule(m module, rootDir string, allModules []module, binCa
 		})
 	}
 
-	return &assetmin.SSRAssets{
+	return &Assets{
 		ModuleName: m.path,
 		RootCSS:    output.Root,
 		CSS:        output.Render,

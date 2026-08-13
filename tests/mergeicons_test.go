@@ -1,9 +1,9 @@
-package ssr_test
+package sitec_test
 
 import (
 	"testing"
 
-	"github.com/tinywasm/ssr"
+	"github.com/tinywasm/sitec"
 	"github.com/tinywasm/svg"
 	"github.com/tinywasm/svg/sprite"
 )
@@ -40,7 +40,7 @@ func spriteWith(prefix string, n int) *sprite.Sprite {
 // symbols stop appearing while platformd's remain.
 func TestMergeResultsFor_DoesNotMutateCachedSprites(t *testing.T) {
 	// One module "app" with two packages, plus an unrelated module.
-	results := map[string]ssr.CollectorOutput{
+	results := map[string]sitec.CollectorOutput{
 		"app/crudview":   {Icons: spriteWith("cv", 3)}, // sorts first under "app"
 		"app/platformd":  {Icons: spriteWith("pd", 3)},
 		"lib/targetlist": {Icons: spriteWith("tl", 1)},
@@ -52,7 +52,7 @@ func TestMergeResultsFor_DoesNotMutateCachedSprites(t *testing.T) {
 	}
 
 	// First aggregation of module "app": crudview(3) + platformd(3) = 6.
-	merged1, ok, err := ssr.MergeResultsFor("app", results)
+	merged1, ok, err := sitec.MergeResultsFor("app", results)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestMergeResultsFor_DoesNotMutateCachedSprites(t *testing.T) {
 	// an unchanged module set => cache hit => same results object). With a correct
 	// (non-mutating) merge this is 6 again; with the bug it is 9 (platformd merged
 	// twice into the corrupted crudview sprite).
-	merged2, _, _ := ssr.MergeResultsFor("app", results)
+	merged2, _, _ := sitec.MergeResultsFor("app", results)
 	if got := merged2.Icons.Len(); got != 6 {
 		t.Errorf("second merge over cached results: want 6 icons, got %d "+
 			"(cache corruption makes icon counts drift across extractions)", got)

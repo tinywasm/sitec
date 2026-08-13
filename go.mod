@@ -1,4 +1,4 @@
-module github.com/tinywasm/ssr
+module github.com/tinywasm/sitec
 
 go 1.25.2
 

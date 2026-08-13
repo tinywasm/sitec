@@ -1,6 +1,6 @@
 //go:build !wasm
 
-package ssr_test
+package sitec_test
 
 import (
 	"os"
@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/tinywasm/modfind"
-	"github.com/tinywasm/ssr"
+	"github.com/tinywasm/sitec"
 )
 
 func writeProj(t *testing.T, root, path, content string) {
@@ -69,7 +69,7 @@ func TestExtract_FontsProducer(t *testing.T) {
 		"config/fonts.go": fontsRoboto,
 	})
 
-	e := ssr.New(root)
+	e := sitec.New(root)
 	e.SetLog(t.Log)
 	f := modfind.New()
 	f.Seed(root, []modfind.Module{{Path: "example.com/app", Dir: root}})
@@ -105,7 +105,7 @@ func (s stylesheet) String() string { return string(s) }
 func RootCSS() stylesheet { return stylesheet(":root{--x:1}") }
 `)
 
-	e := ssr.New(root)
+	e := sitec.New(root)
 	e.SetLog(t.Log)
 	f := modfind.New()
 	f.Seed(root, []modfind.Module{{Path: "example.com/app", Dir: root}})
@@ -140,7 +140,7 @@ func Fonts() font.Declaration {
 `,
 	})
 
-	e := ssr.New(root)
+	e := sitec.New(root)
 	e.SetLog(t.Log)
 	f := modfind.New()
 	f.Seed(root, []modfind.Module{{Path: "example.com/app", Dir: root}})
@@ -174,7 +174,7 @@ func (b *Box[T]) Fonts() font.Declaration {
 `,
 	})
 
-	e := ssr.New(root)
+	e := sitec.New(root)
 	e.SetLog(t.Log)
 	f := modfind.New()
 	f.Seed(root, []modfind.Module{{Path: "example.com/app", Dir: root}})

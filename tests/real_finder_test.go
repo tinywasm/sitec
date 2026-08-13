@@ -1,6 +1,6 @@
 //go:build !wasm
 
-package ssr_test
+package sitec_test
 
 import (
 	"os"
@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tinywasm/ssr"
+	"github.com/tinywasm/sitec"
 )
 
 func TestExtract_RealFinder_ToleratesDependencyModules(t *testing.T) {
@@ -67,7 +67,7 @@ func (m *MyWidget) RenderCSS() *css.Stylesheet {
 		t.Fatalf("go mod tidy failed: %v, output: %s", err, string(out))
 	}
 
-	e := ssr.New(root) // finder REAL, sin Seed
+	e := sitec.New(root) // finder REAL, sin Seed
 	assets, err := e.ExtractModule(root)
 	if err != nil {
 		t.Fatalf("extraction failed with a real finder: %v", err)

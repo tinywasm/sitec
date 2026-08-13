@@ -1,405 +1,760 @@
 ---
-PLAN: "fix: extract only the packages the built artifact actually uses"
+PLAN: "feat: sitec — compilador de sitio con responsabilidad única"
 EXECUTOR: jules
 REVIEWER: none
-STATUS: running
-SESSION: 4184147406134010970
 ---
 
-> This plan is dispatched via the CodeJob workflow. See skill: agents-workflow.
+> Este plan se despacha con el flujo CodeJob. Ver skill: agents-workflow.
 >
-> This is **stage A of a cross-repo chain**. The orchestrator lives in
-> `tinywasm/app`: https://github.com/tinywasm/app/blob/main/docs/PLAN.md
-> This repo is a **gate** — `assetmin` and `app` cannot start until this ships.
+> **Este repo se llamaba `github.com/tinywasm/ssr`.** Fue renombrado en GitHub,
+> conservando los 151 commits de historia; GitHub redirige la ruta antigua. El
+> cambio de `module path` es con ruptura y sin retrocompatibilidad. El plan
+> maestro que coordina los demás repos está en
+> https://github.com/tinywasm/app/blob/main/docs/PLAN.md
 
-# Plan — extract only what the application actually uses
+# Plan — `sitec`: el compilador de sitio
 
-## The principle
+## Qué es
+
+`sitec` toma un árbol de fuentes Go y produce la superficie estática desplegable
+del sitio: hoja de estilos, bundle de scripts, sprite SVG, declaración de fuentes
+y shell HTML. Corre hasta terminar y sale. Es un **compilador**, no un servidor
+ni un renderizador.
+
+El nombre viene de la convención del ecosistema para compiladores: `ormc`,
+`ddlc`, `sitec`. El nombre anterior, `ssr`, nombraba una técnica que la librería
+**no** implementa — nada se renderiza server-side por petición: los productores
+corren una vez en build y el resultado es estático.
+
+## Estado actual del repo — leer antes de empezar
+
+El renombre ya está aplicado y **la librería compila**. Los archivos se
+renombraron con `git mv`, así que `git blame` y `git log --follow` siguen
+funcionando sobre todo el pipeline.
+
+| Archivo | Antes | Contenido |
+|---|---|---|
+| `pipeline.go` | `ssr.go` | tipo `Extractor`, `ExtractAll`, `ExtractModule` |
+| `invoke.go` | *(igual)* | selección de paquetes **y** ejecución del extractor — mezclados |
+| `merge.go` | `extract.go` | merge por ruta, conflicto `@layer`, unicidad de `Fonts()` |
+| `scanner.go` | *(igual)* | parseo AST, detección de productores |
+| `cache.go` | *(igual)* | caché por hash de contenido |
+| `assets.go` | **nuevo** | el DTO `Assets` |
+| `tests/` | *(igual)* | 14 archivos de test |
+| `emit_*.go` | **movidos desde `assetmin`** | ver abajo — **no compilan todavía** |
+| `serve/serve.go` | `assetmin/http.go` | exposición en modo dev |
+
+### El código de `emit` YA ESTÁ AQUÍ — no lo reescribas
+
+Se movió desde `assetmin` código real y probado. **Adáptalo; no lo escribas de
+nuevo.**
+
+| Archivo aquí | Venía de | Qué contiene |
+|---|---|---|
+| `emit_asset.go` | `asset.go` | el artefacto: ruta, URL, mediatype, slots open/middle/close, caché minificada |
+| `emit_html.go` | `html.go` | ensamblado del shell `index.html` |
+| `emit_svg.go` | `svg.go` | recolección de sprites por módulo |
+| `emit_fonts.go` | `fonts.go` | copia de las fuentes declaradas |
+| `emit_filewrite.go` | `filewrite.go` | escritura a disco |
+| `emit_injection.go` | `injection.go` | inyección de contenido |
+| `emit_ssr_register.go` | `ssr_register.go` | ruteo de assets a slots |
+| `emit_ssr_register_slot_test.go` | idem | su test |
+| `emit_core.go` | `assetmin.go` | tipo núcleo, `Config`, y el registro de `tdewolff/minify` (3 líneas) |
+| `emit_events.go` | `events.go` | `UpdateFileContentInMemory`, `processAsset` |
+| `emit_inspect.go` | `inspect.go` | consultas sobre los artefactos (`ContainsCSS`, `HasIcon`…) |
+| `emit_flush.go` | `ssr.go` | `FlushToDisk`, modo SSR |
+| `emit_route.go` | mitad de `ssr_loader.go` | `routeAssets`, `resolveAndApplyRootCSS`, `isRootDir` |
+| `serve/serve.go` | `http.go` | registro de rutas en modo dev |
+| `tests/emit_*.go` | `assetmin/tests/` | **24 tests** del pipeline y `emit` |
+| `tests/serve_*.go` | idem | 3 tests de exposición HTTP |
+| `docs/ASSETMIN_*.md` | `assetmin/docs/` | 6 documentos del pipeline |
+
+**Ya aplicado en el movimiento:**
+
+- `package assetmin` → `package sitec` (y `package serve` en el subpaquete).
+- `SSRAssets` → `Assets`.
+- `emit_svg.go` ya usa `sprite.MergeAll` en vez de reimplementar la
+  deduplicación, y `checkIconID` ya usa `sprite.Has` en vez de buscar
+  `id="…"` por substring en el markup renderizado.
+
+**`github.com/tinywasm/assetmin` está archivado y borrado.** No lo busques, no
+lo reimportes, no restaures nada de él: todo lo que valía está en la tabla de
+arriba, en `github.com/tinywasm/svg/sprite`, o en `tinywasm/app`.
+
+**El trabajo pendiente de esta etapa:**
+
+1. **Disolver `AssetMin`.** Es el objeto-dios de `assetmin`; llegó en
+   `emit_core.go` porque los métodos movidos cuelgan de él. Deben colgar del tipo
+   del pipeline de este repo. `emit_core.go` es material de referencia, no código
+   final.
+2. **`Config`** — conservar solo lo que `emit` usa (directorio de salida, nombres
+   de archivo). El `Config` de `assetmin` servía también a HTTP y al watcher.
+3. **La minificación se queda aquí, no se inyecta.** `emit_core.go` trae las tres
+   líneas que la componen:
+   ```go
+   c.min = minify.New()
+   c.min.AddFunc("text/css", css.Minify)
+   c.min.AddFuncRegexp(...javascript..., js.Minify)
+   c.min.AddFunc("image/svg+xml", minifySvg.Minify)
+   ```
+   El registro está indexado por los mediatypes que **este** repo emite: si
+   añades un artefacto, registras su minificador. Mismo disparador de cambio, así
+   que no hay interfaz que inventar — `sitec` depende de `tdewolff/minify`
+   directamente, que es lo que ya hacía de forma transitiva.
+4. Sustituir la escritura directa a disco de `emit_filewrite.go` por el puerto
+   `FS` (ver 7.1).
+5. **Repartir `emit_events.go`**: `NewFileEvent`, `ShouldCompileToWasm` y
+   `MainInputFileRelativePath` son la interfaz de `devwatch` y se fueron a `app`;
+   aquí solo se quedan `UpdateFileContentInMemory` y `processAsset`. El archivo
+   llegó entero — recorta lo que no es de aquí.
+
+`docs/ARCHITECTURE.md`, `docs/DESIGN.md`, `docs/SPECS.md`,
+`docs/CONSTRUCTION_HARNESS.md` y `docs/diagrams/EXTRACTION.md` describen este
+pipeline y siguen siendo válidos, pero **hablan de "SSR"**. Actualizarlos al
+vocabulario de compilador es parte de la etapa 1.
+
+### Lo que ya está hecho
+
+**El DTO ya no vive en el consumidor.** `Assets` (antes
+`assetmin.SSRAssets`) está en `assets.go`. La librería ya **no importa
+`assetmin`**, así que ya no arrastra `router` (HTTP) ni `tui` (terminal) solo
+para nombrar su propio resultado. Verificado: `grep -rn assetmin *.go` solo
+encuentra el comentario histórico en `assets.go`.
+
+### Lo que está roto, y por qué está bien
 
 ```
-The SSR extractor must run exactly the producers of the packages that the
-artifact being served actually imports. Nothing else is walked, imported,
-compiled, or merged into the stylesheet.
+$ go build ./...           # 0 errores
+$ go test ./tests/
+vet: tests/consumer_hot_reload_test.go:37:21: cannot use extractor
+     (variable of type *sitec.Extractor) as assetmin.SSRExtractor value:
+       have ExtractAll() ([]*sitec.Assets, error)
+       want ExtractAll() ([]*assetmin.SSRAssets, error)
+FAIL github.com/tinywasm/sitec/tests [build failed]
 ```
 
-Everything below follows from that one sentence. The current behaviour —
-walk every directory of every module and import anything that declares a
-producer — is the cause of every defect in this plan.
+Dos tests de integración (`consumer_hot_reload_test.go`,
+`extract_root_wins_over_framework_test.go`) cablean el extractor dentro de
+`assetmin` usando la interfaz vieja. **Esa rotura es el cambio con ruptura hecho
+visible**, no un accidente: es exactamente la dependencia invertida que
+eliminamos. La etapa 1 los repara.
 
-## What that behaviour costs today, measured
-
-Run from `tinywasm/layout/platformd`:
-
-| | packages of `tinywasm/components` |
-|---|---|
-| in the server build graph | 7 |
-| in the WASM client build graph | 8 |
-| **union — what is actually used** | **9** |
-| what `expandToSSRPackages` imports | **13** |
-
-The four extra packages are dead weight in the stylesheet. One of them,
-`calendarslider`, is worse than dead weight: it declares `RenderCSS()` and
-imports `github.com/tinywasm/date`, which is not in layout's `go.sum` because
-layout never imports calendarslider. The generated extractor imports it anyway,
-so `go run` fails to build, and because that single `go run` produces **all**
-modules' assets, every stylesheet in the project is lost at once:
+Los otros 12 archivos de test son los del pipeline puro y son la red de
+seguridad de todo este plan. Tres de ellos fallan **a propósito** — son la
+reproducción del defecto y el criterio de aceptación de la etapa 2:
 
 ```
-ssr extract error:...calendarslider/calendarslider.go:12:2: missing go.sum entry for module providing package github.com/tinywasm/date (imported by github.com/tinywasm/components/calendarslider); to add:
-	go get github.com/tinywasm/components/calendarslider@v0.5.7
+--- FAIL: TestExtractAll_UnreachablePackageDoesNotKillExtraction
+--- FAIL: TestExtractAll_ReportsFailureInsteadOfSilentlyReturningNothing
+--- FAIL: TestExtractAll_NoAssetLibrariesWarnedOnce
 ```
 
+**No modifiques esos tres tests.** Haz que pasen.
+
+### Dónde van los tests
+
+**Todos en `tests/`, ninguno fuera.** Para agrupar se usa un prefijo en el
+nombre (`emit_`, `serve_`, `extract_`), nunca una subcarpeta: fragmentar el
+paquete obliga a duplicar helpers y hace que `go test ./tests/` deje de cubrir
+todo. Un solo paquete, `sitec_test`.
+
+La regla completa está en [AGENTS.md](../AGENTS.md) y es verificable:
+
+```sh
+find . -name "*_test.go" -not -path "./tests/*" -not -path "./.git/*"
+# debe devolver vacío
 ```
-GET /style.css  ->  HTTP 200, 0 bytes     # the app runs unstyled
-```
-
-The developer cannot fix this by hand. Verified on a copy of `tinywasm/layout`:
-`go mod tidy` does **not** add `tinywasm/date` (nothing imports the package that
-needs it), and the `go get` the error suggests adds a requirement that the next
-`go mod tidy` deletes, so the error returns.
-
-**Reachability is the fix.** A package that is not in the build graph is never
-imported, so it can never break the build and never bloats the stylesheet. The
-remaining stages are consequences and safety nets, not separate features.
-
-## Reproduction (already committed)
-
-`tests/unreachable_package_test.go` contains three failing tests. They are the
-acceptance criteria — **do not modify them**. Baseline today: the whole suite
-passes except those three.
 
 ---
 
-## Stage 1 — Scope extraction to the reachable build graph
+## Etapa 1 *(gate)* — reparar los dos tests de integración
 
-### 1.1 The scope is anchored at the started directory, not the module root
+Los dos tests cablean `sitec.Extractor` dentro de `assetmin.AssetMin` para
+verificar el recorrido completo hasta la hoja servida. Ese recorrido sigue
+siendo válido y valioso; lo que cambió es el tipo del contrato.
 
-The harness is started from the root of whatever is being tested, and **that
-directory is usually not the module root**. Verified:
+`assetmin` debe declarar su puerto en términos del DTO de `sitec`:
+
+```go
+// en assetmin
+import "github.com/tinywasm/sitec"
+
+type SSRExtractor interface {
+    ExtractModule(moduleDir string) (*sitec.Assets, error)
+    ExtractAll() ([]*sitec.Assets, error)
+}
+```
+
+Ahora la flecha apunta del consumidor al productor, que es la dirección
+correcta. `assetmin.SSRAssets` se **elimina**; no se deja alias de
+compatibilidad — es un cambio con ruptura declarado.
+
+`assetmin` está archivado, así que no hay repo consumidor que actualizar: los
+dos tests llegaron aquí junto con el código que cablean. Adáptalos al tipo del
+pipeline de este repo.
+
+### 1.1 Actualizar el vocabulario en la documentación
+
+Los documentos de `docs/` heredados hablan de "SSR extractor". Renombrar a
+compilador: `docs/ARCHITECTURE.md`, `docs/DESIGN.md`, `docs/SPECS.md`,
+`docs/CONSTRUCTION_HARNESS.md`, `docs/diagrams/EXTRACTION.md` y `README.md`.
+
+Actualizar también la descripción del repo en GitHub, que sigue diciendo *"SSR
+asset extractor for TinyWasm..."*.
+
+**Aceptación:** `go test ./tests/` compila; fallan solo los tres tests de
+reproducción. `grep -rni "server-side render" docs/` devuelve vacío.
+
+---
+
+## Etapa 2 — extraer solo lo que se usa
+
+Este es el defecto que dejaba la aplicación sin estilos. El principio:
+
+```
+El compilador ejecuta los productores de los paquetes que el artefacto
+realmente importa. Nada más se recorre, importa, compila ni fusiona.
+```
+
+Medido desde `tinywasm/layout/platformd`:
+
+| | paquetes de `tinywasm/components` |
+|---|---|
+| en el grafo del servidor | 7 |
+| en el grafo del cliente WASM | 8 |
+| **unión — lo que de verdad se usa** | **9** |
+| lo que `expandToSSRPackages` importa hoy | **13** |
+
+Uno de esos cuatro sobrantes, `calendarslider`, declara `RenderCSS()` e importa
+`github.com/tinywasm/date`, que no está en el `go.sum` del consumidor porque
+nadie importa calendarslider. El `main.go` generado lo importa igual, `go run`
+no compila, y como ese único `go run` produce los assets de **todos** los
+módulos, se pierden todas las hojas de estilo a la vez:
+
+```
+GET /style.css  ->  HTTP 200, 0 bytes
+```
+
+El desarrollador no puede arreglarlo a mano: `go mod tidy` no añade `date`
+(nada importa el paquete que lo necesita), y el `go get` que sugiere el error
+añade un requisito que el siguiente `tidy` borra.
+
+### 2.1 El alcance se ancla en el directorio de arranque
+
+El arnés se arranca desde la raíz de lo que se prueba, y **ese directorio no
+suele ser la raíz del módulo**:
 
 ```
 $ cd components/calendarslider && go list -m -json
 Path: github.com/tinywasm/components
-Dir:  /home/cesar/Dev/Project/tinywasm/components    <- module root, not calendarslider
+Dir:  /home/cesar/Dev/Project/tinywasm/components    <- raíz del módulo, NO calendarslider
 Main: true
 ```
 
-`components/` has a single `go.mod`, so testing one component currently walks
-the whole repository and extracts the CSS of all thirteen components.
+`components/` tiene un solo `go.mod`, así que probar un componente hoy recorre
+el repo entero y extrae el CSS de los trece.
 
-`Extractor.rootDir` (set by `New`) already holds the started directory. Use it
-as the anchor. Do **not** resolve up to the module root for scope purposes —
-`findProjectRoot` stays only where a module root is genuinely required.
+`Extractor.rootDir` ya guarda el directorio de arranque. Úsalo como ancla. **No**
+subas a la raíz del módulo para calcular el alcance.
 
-### 1.2 Compute the reachable set
+### 2.2 Calcular el conjunto alcanzable
 
-**New file: `reach.go`** (package `ssr`).
+**Archivo nuevo: `reach.go`.**
 
 ```go
-// reachSet is the set of import paths in the build graph of the started
-// directory, across every build configuration the artifact is compiled for.
+// reachSet es el conjunto de rutas de importación en el grafo de compilación
+// del directorio de arranque, en todas las configuraciones para las que se
+// compila el artefacto.
 type reachSet map[string]bool
 
-// GraphLister returns the transitive import paths of pattern, built for the
-// given GOOS/GOARCH. Injected so tests need no toolchain.
+// GraphLister devuelve las rutas de importación transitivas de pattern para el
+// GOOS/GOARCH dado. Se inyecta para que los tests no necesiten toolchain.
 type GraphLister func(rootDir, pattern, goos, goarch string) ([]string, error)
 ```
 
-Default implementation `goListDeps`:
+Implementación por defecto `goListDeps`:
 
-- Command: `go list -e -deps <pattern>`
-- `cmd.Dir = rootDir`, pattern `./...`
-- `-e` is **required**: under the native `GOOS` the client directory is
-  WASM-only and reports `build constraints exclude all Go files`; without `-e`
-  the whole listing aborts.
-- Env: inherit `os.Environ()` and append `GOOS=`/`GOARCH=` when non-empty.
-- Output is one import path per line; ignore empty lines.
+- Comando: `go list -e -deps <pattern>`, `cmd.Dir = rootDir`, pattern `./...`
+- `-e` es **obligatorio**: con el `GOOS` nativo el directorio del cliente es
+  solo-WASM y reporta `build constraints exclude all Go files`; sin `-e` se
+  aborta el listado completo.
+- Entorno: heredar `os.Environ()` y añadir `GOOS=`/`GOARCH=` cuando no estén
+  vacíos.
+- La salida es una ruta por línea; ignorar líneas vacías.
 
-#### The union of both build graphs is mandatory
-
-An application is compiled twice: the server (native `GOOS`) and the WASM
-client. A component imported only by the client is absent from the server graph
-and vice versa. Measured from `layout/platformd`: server 7, client 8, union 9.
-
-**Using a single graph silently drops CSS** — `fieldset` and `themetoggle` are
-in the client graph only. Compute:
+**La unión de los dos grafos es obligatoria.** Una aplicación se compila dos
+veces: servidor (`GOOS` nativo) y cliente WASM. Un componente que solo importa
+el cliente no está en el grafo del servidor.
 
 ```go
-// buildTargets are the configurations the artifact is compiled for. The
-// reachable set is their UNION: a component imported only by the WASM client
-// is absent from the server graph, and dropping it would lose its styles.
+// buildTargets son las configuraciones para las que se compila el artefacto.
+// El conjunto alcanzable es su UNIÓN: un componente que solo importa el
+// cliente WASM no aparece en el grafo del servidor, y descartarlo perdería sus
+// estilos.
 var buildTargets = []struct{ GOOS, GOARCH string }{
-	{"", ""},        // native: the server binary
-	{"js", "wasm"},  // the browser client
+	{"", ""},       // nativo: el binario del servidor
+	{"js", "wasm"}, // el cliente del navegador
 }
 ```
 
-Union the results. If **every** target fails, log once and return an empty
-`reachSet` with a flag meaning "unknown" — see 1.4.
+Filtrar por un solo `GOOS` **pierde CSS en silencio** — `fieldset` y
+`themetoggle` están solo en el grafo del cliente.
 
-### 1.3 Apply the filter
+**Restricción de compatibilidad hacia adelante:** declara `GraphLister` como
+tipo de función **inyectado** con setter exportado. La etapa 5 extrae el puerto
+`Toolchain` y debe poder sustituir la implementación sin tocar ningún call site.
+No llames a `exec.Command` desde la lógica del filtro.
 
-In `invoke.go`, `modulesToAliases` starts with:
+### 2.3 Aplicar el filtro
+
+En `invoke.go`, `modulesToAliases` empieza con:
 
 ```go
 for _, m := range expandToSSRPackages(modules, scanner, assetLibraries) {
 ```
 
-Filter that slice against the `reachSet`: keep a package only when its import
-path is in the set. `modulesToAliases` therefore needs the `rootDir` and the
-`reachSet`; thread them from `invokeSSRExtractorOnce`, which already has
-`rootDir`.
+Filtrar ese slice contra el `reachSet`: conservar un paquete solo si su ruta de
+importación está en el conjunto.
 
-Log dropped packages at most once per extraction as a single aggregate line —
-one line per dropped package would reintroduce the noise this plan removes:
+Loguear los descartes como **una sola línea agregada** por extracción — una
+línea por paquete reintroduciría el ruido que este plan elimina:
 
 ```go
-const skippedUnreachableFmt = "ssr: %d package(s) not in the build graph were skipped"
+const skippedUnreachableFmt = "sitec: %d paquete(s) fuera del grafo de compilación fueron omitidos"
 ```
 
-### 1.4 Fail open, never closed
+### 2.4 Degradar abierto, nunca cerrado
 
-If the `GraphLister` cannot produce a usable set (toolchain missing, every
-target failed), **do not filter**. Log once and proceed with the unfiltered
-candidate list, so a broken probe degrades to today's behaviour instead of
-silently emitting an empty stylesheet.
+Si el `GraphLister` no puede producir un conjunto usable (sin toolchain, todos
+los targets fallaron), **no filtrar**. Loguear una vez y seguir con la lista sin
+filtrar, para que un sondeo roto degrade al comportamiento actual en vez de
+emitir una hoja vacía en silencio.
 
-Represent this explicitly — an empty `reachSet` and an unknown `reachSet` must
-not be the same value:
+Representarlo explícitamente — "vacío" y "desconocido" no pueden ser el mismo
+valor:
 
 ```go
 type reachability struct {
 	set   reachSet
-	known bool // false => do not filter
+	known bool // false => no filtrar
 }
 ```
 
-### 1.5 Update the existing dependency-module test
+### 2.5 Actualizar el test de módulo dependencia
 
-`tests/extract_dependency_module_test.go` currently asserts that a local
-dependency module's subpackage CSS is extracted **even though the app's
-`main.go` does not import it**. That assertion encodes exactly the behaviour
-this plan removes.
+`tests/extract_dependency_module_test.go` afirma hoy que el CSS del subpaquete
+de un módulo dependencia se extrae **aunque el `main.go` de la app no lo
+importe**. Esa afirmación codifica exactamente el comportamiento que estamos
+eliminando.
 
-Edit the fixture so the app imports the package whose CSS it expects:
+Editar el fixture para que la app importe el paquete cuyo CSS espera:
 
 ```go
 write(filepath.Join(appDir, "main.go"),
 	"package main\n\nimport _ \"example.com/layout/platformd\"\n\nfunc main() {}\n")
 ```
 
-The assertion itself is unchanged and still meaningful: a dependency module's
-CSS lives in its subpackages and must be collected. Do **not** weaken the
-reachability filter to keep the old fixture.
+La afirmación en sí no cambia y sigue siendo válida: el CSS de un módulo
+dependencia vive en sus subpaquetes y debe recogerse. **No debilites el filtro
+para conservar el fixture viejo.**
 
-**Acceptance:**
+**Aceptación:**
 
-- `go test ./tests/ -run TestExtractAll_UnreachablePackageDoesNotKillExtraction` passes.
-- From `layout/platformd`, the extractor imports 9 packages of
-  `tinywasm/components`, not 13, and produces zero `missing go.sum entry` lines.
-- From `components/calendarslider`, only calendarslider's own graph is
-  extracted — not the other twelve components.
+- Pasa `TestExtractAll_UnreachablePackageDoesNotKillExtraction`.
+- Desde `layout/platformd` se importan 9 paquetes de `components`, no 13, y cero
+  líneas de `missing go.sum entry`.
+- Desde `components/calendarslider` se extrae solo el grafo de ese componente.
 
 ---
 
-## Stage 2 — Safety net: packages that can never be imported
+## Etapa 3 — red de seguridad: paquetes que jamás se pueden importar
 
-Reachability removes the cause. This stage makes the remaining cases impossible
-rather than unlikely, because a package can enter the build graph and still be
-un-importable.
+### 3.1 Un directorio `package main` nunca es un paquete del compilador
 
-### 2.1 A `package main` directory is never an SSR package
-
-Every application has a client entry point (`platformd/web/client.go`), and
-component libraries publish demos inside the module
+Toda aplicación tiene su entry point de cliente (`platformd/web/client.go`), y
+las librerías de componentes publican demos dentro del módulo
 (`components/calendarslider/web/`, `selectsearch/web/`, `themetoggle/web/`).
-All are `package main` with `//go:build wasm`. **A `package main` cannot be
-imported by anything.**
+Todos son `package main` con `//go:build wasm`. **Un `package main` no se puede
+importar desde ningún sitio.**
 
-Record the package name in the scanner. In `scanner.go`, `fileFeatures` gains:
+En `scanner.go`, `fileFeatures` gana un campo:
 
 ```go
 type fileFeatures struct {
 	mtime     time.Time
-	pkgName   string          // f.Name.Name from the parsed file
+	pkgName   string          // f.Name.Name del archivo parseado
 	imports   map[string]bool
 	producers []producerDecl
 }
 ```
 
-`scanFile` already holds the parsed `*ast.File`; set `pkgName: f.Name.Name`.
-`packageFeatures` gains the same field, filled by `scanPackage` from the first
-non-test file it reads.
+`scanFile` ya tiene el `*ast.File` parseado; asignar `pkgName: f.Name.Name`.
+`packageFeatures` gana el mismo campo, rellenado por `scanPackage` desde el
+primer archivo no-test que lee.
 
-In `expandToSSRPackages`, immediately after `scanner.scanPackage(path)`:
+En `expandToSSRPackages`, justo después de `scanner.scanPackage(path)`:
 
 ```go
-// A package main cannot be imported, so it can never contribute SSR assets.
+// Un package main no se puede importar, así que nunca puede aportar assets.
 if feats.PkgName == mainPackageName {
-	return nil // do not select; keep walking subdirectories
+	return nil // no seleccionar; seguir bajando a subdirectorios
 }
 ```
 
-with `const mainPackageName = "main"`.
+con `const mainPackageName = "main"`.
 
-Return `nil`, **not** `filepath.SkipDir` — a `package main` directory may
-contain subdirectories with real SSR packages.
+Devolver `nil`, **no** `filepath.SkipDir` — un directorio `package main` puede
+contener subdirectorios con paquetes reales.
 
-#### Do NOT gate this on the module or the directory name
+#### NO condicionar esto al módulo ni al nombre del directorio
 
-Both wrong alternatives were considered and rejected:
+Ambas alternativas fueron consideradas y rechazadas:
 
-- *"skip `web/` in dependency modules"* — when the harness starts at
-  `components/calendarslider`, the main module is `components` and **all three
-  demos are in the main module**. A main-module exemption leaves that workflow
-  unguarded.
-- *"skip directories named `web` or `example`"* — depends on a naming
-  convention libraries are free to ignore.
+- *"saltar `web/` en módulos dependencia"* — cuando el arnés arranca en
+  `components/calendarslider`, el módulo main es `components` y **las tres demos
+  están en el módulo main**. Una exención por módulo main deja ese flujo sin
+  protección.
+- *"saltar directorios llamados `web` o `example`"* — depende de una convención
+  de nombres que las librerías pueden ignorar.
 
-The package clause is the fact; everything else is a proxy for it.
+La cláusula `package` es el hecho; todo lo demás es un sustituto de ella.
 
-### 2.2 Build tags are not evaluated by the scanner
+### 3.2 El scanner no evalúa build tags
 
-`scanner.scanFile` parses with `go/parser` in mode `0`, which reads the file
-regardless of its `//go:build` line. A WASM-only file declaring a producer is
-therefore detected and imported into the `!wasm` extractor, where it fails to
-compile.
+`scanner.scanFile` parsea con `go/parser` en modo `0`, que lee el archivo sin
+importar su línea `//go:build`. Un archivo solo-WASM que declare un productor es
+detectado e importado en el extractor `!wasm`, donde no compila.
 
-Do **not** try to evaluate build constraints in the scanner. Stage 1 keeps such
-packages out of scope and 2.1 removes the common source. Add a comment on
-`scanFile` recording this so the next reader does not "fix" the parser mode.
+**No** intentes evaluar build constraints en el scanner. La etapa 2 deja esos
+paquetes fuera de alcance y la 3.1 elimina la fuente común. Añade un comentario
+en `scanFile` dejándolo escrito, para que el siguiente lector no "arregle" el
+modo del parser.
 
-**Acceptance:** a fixture with `<mod>/demo/client.go` containing `package main`
-is never selected, in the main module and in a dependency alike.
-`grep -rn '"web"' .` and `grep -rn '"example"' .` return no hits in selection
-logic.
+**Aceptación:** un fixture con `<mod>/demo/client.go` que contiene `package
+main` nunca se selecciona, ni en el módulo main ni en una dependencia.
+`grep -rn '"web"' .` y `grep -rn '"example"' .` no devuelven nada en la lógica
+de selección.
 
 ---
 
-## Stage 3 — One extraction, one error
+## Etapa 4 — una extracción, un error
 
-### 3.1 `ExtractAll` must invoke the extractor once
+### 4.1 `ExtractAll` invoca el extractor una sola vez
 
-`ExtractAll` loops over modules calling `extractAssetsForModule`, which each
-time computes the same hash key over the same module set and, on failure,
-re-runs the same failing `go run` — the cache is only written on success. One
-root failure becomes N compiler invocations and N identical log lines.
+`ExtractAll` recorre los módulos llamando a `extractAssetsForModule`, que cada
+vez calcula la misma clave de hash sobre el mismo conjunto y, al fallar, repite
+el mismo `go run` fallido — la caché solo se escribe en éxito. Un fallo raíz se
+convierte en N invocaciones del compilador y N líneas idénticas de log.
 
-Restructure:
+Reestructurar:
 
-1. Resolve the shared `map[string]CollectorOutput` **once** before the loop
-   (cache lookup, else `invokeSSRExtractorOnce`).
-2. If that fails, return `nil, err` immediately — do **not** log per module and
-   do **not** `continue`.
-3. The loop then only calls `MergeResultsFor(m.path, results)` and sets
-   `IsRoot` / `IsFramework`.
+1. Resolver el `map[string]CollectorOutput` compartido **una vez** antes del
+   bucle (consulta a caché, si no `invokeSSRExtractorOnce`).
+2. Si falla, devolver `nil, err` de inmediato — **no** loguear por módulo ni
+   hacer `continue`.
+3. El bucle solo llama a `MergeResultsFor(m.path, results)` y fija
+   `IsRoot`/`IsFramework`.
 
-Extract the shared step so `ExtractModule` and `ExtractAll` use one code path:
+Extraer el paso compartido para que `ExtractModule` y `ExtractAll` usen un solo
+camino:
 
 ```go
 func (e *Extractor) results(rootDir string, modules []module) (map[string]CollectorOutput, error)
 ```
 
-Delete the per-module error line:
+Borrar la línea de error por módulo:
 
 ```go
-e.log("ssr extract error:", m.path, err)   // DELETE
+e.log("ssr extract error:", m.path, err)   // BORRAR
 ```
 
-`grep -rn "ssr extract error" .` must return zero hits in non-test code.
+`grep -rn "extract error" .` debe devolver cero coincidencias en código que no
+sea de test.
 
-### 3.2 An empty result set is a failure
+### 4.2 Un resultado vacío es un fallo
 
-If the loop completes with `len(all) == 0`, return an error instead of
-`(nil, nil)`:
+Si el bucle termina con `len(all) == 0`, devolver error en vez de `(nil, nil)`:
 
 ```go
-const errNoAssetsExtracted = "ssr: no assets extracted from any module; the stylesheet would be empty"
+const errNoAssetsExtracted = "sitec: ningún módulo produjo assets; la hoja de estilos saldría vacía"
 ```
 
-Returning `(nil, nil)` is what let `assetmin` report success while serving a
-0-byte stylesheet.
+Devolver `(nil, nil)` es lo que permitía al consumidor reportar éxito mientras
+servía una hoja de 0 bytes.
 
-### 3.3 A broken package in the started directory must still fail loudly
+### 4.3 Un paquete alcanzable que no compila debe reventar fuerte
 
-Stage 1 removes unreachable packages. A package that **is** reachable and does
-not compile is the developer's own code: it must break the build with its real
-compiler error, exactly as it does today. Do not add any error-swallowing path
-for reachable packages.
+La etapa 2 quita los paquetes fuera de alcance. Un paquete que **sí** está en el
+grafo y no compila es código propio del desarrollador: debe romper el build con
+su error de compilación real. No añadas ningún camino que se trague errores de
+paquetes alcanzables.
 
-**Acceptance:**
-`go test ./tests/ -run TestExtractAll_ReportsFailureInsteadOfSilentlyReturningNothing`
-passes; a genuine compile error in the project's own `css.go` produces one error
-line and a non-nil error from `ExtractAll`.
+**Aceptación:** pasa
+`TestExtractAll_ReportsFailureInsteadOfSilentlyReturningNothing`; un error de
+compilación real en un `css.go` propio produce **una** línea de error y un error
+no-nil desde `ExtractAll`.
 
 ---
 
-## Stage 4 — Warn about asset libraries at most once
+## Etapa 5 — avisar una sola vez sobre las asset libraries
 
-`noAssetLibrariesWarning` is logged at the top of both `ExtractAll` and
-`ExtractModule`, i.e. on every startup and every file save. Observed ten times
-in a single startup. No production caller has ever called `SetAssetLibraries` —
-only this repo's tests do.
+El aviso `no asset libraries configured` se emite al inicio de `ExtractAll` y de
+`ExtractModule`, o sea en cada arranque y en cada guardado. Observado diez veces
+en un solo arranque.
 
-Add `warnOnce sync.Once` to `Extractor` and wrap both log sites.
-`SetAssetLibraries` must assign a fresh `sync.Once` so a caller that configures
-libraries later still behaves correctly on the next extraction.
+Añadir `warnOnce sync.Once` al `Extractor` y envolver ambos sitios de log.
+`SetAssetLibraries` debe asignar un `sync.Once` nuevo para que un llamador que
+configure librerías más tarde siga comportándose bien en la siguiente
+extracción.
 
-Do **not** delete the warning or the `SetAssetLibraries` API — `tinywasm/app`
-starts calling it in stage E of the chain.
+**No** borres el aviso ni la API `SetAssetLibraries` — `tinywasm/app` empieza a
+llamarla.
 
-**Acceptance:** `go test ./tests/ -run TestExtractAll_NoAssetLibrariesWarnedOnce` passes.
+**Aceptación:** pasa `TestExtractAll_NoAssetLibrariesWarnedOnce`.
 
 ---
 
-## Constraints
+## Etapa 6 — el puerto `Toolchain`
 
-### This repo is backend tooling
+Hoy `exec.Command("go", …)` está disperso por el ecosistema: `devflow` 7 sitios,
+este repo 1 (más los que añade la etapa 2), `modfind` 1. Nadie posee "cómo este
+proyecto ejecuta Go", así que el cacheo, el manejo de `GOOS` y la clasificación
+de errores se reimplementan en cada sitio, distinto cada vez.
 
-`tinywasm/ssr` runs on the developer's machine and drives the Go toolchain. It
-legitimately imports `os`, `os/exec`, `encoding/json`, `go/ast`, `go/parser`,
-`sync`, `io`. The "no standard library in WASM code" rule does **not** apply
-here — do **not** "fix" those imports. Use `github.com/tinywasm/fmt` for error
-construction, as the existing code does.
+**Archivo nuevo `toolchain.go`:**
 
-### No hardcoded strings
+```go
+// Toolchain ejecuta el toolchain de Go. Todo go list / go run / go build del
+// compilador pasa por este puerto, para que el cacheo, el manejo de GOOS y la
+// clasificación de errores existan en exactamente un lugar.
+type Toolchain interface {
+	List(dir string, args ...string) ([]byte, error)
+	ListEnv(dir string, env []string, args ...string) ([]byte, error)
+	Run(dir string, args ...string) ([]byte, error)
+}
+```
 
-Every repeated string is a named constant. The plan names the required ones:
+**Archivo nuevo `toolchain_exec.go`** con el adaptador real, y un fake en memoria
+en los tests. Migrar los call sites de este repo y de `modfind`.
+
+**Fuera de alcance, explícito:** los 7 sitios de `devflow` son comandos de flujo
+de desarrollo (`gopush`, `gorelease`) y **no** se migran. No los toques.
+
+**Aceptación:** `grep -rn 'exec.Command("go"' .` devuelve únicamente el
+adaptador.
+
+---
+
+## Etapa 7 — separar las cuatro etapas del pipeline
+
+`invoke.go` mezcla hoy selección y ejecución. Separar en archivos por etapa:
+
+| Archivo | Contenido | Puerto |
+|---|---|---|
+| `select.go` | alcance, descarte de `package main`, detección de productores | `Toolchain` |
+| `extract.go` | generación del `main.go` extractor, ejecución, parseo del JSON | `Toolchain` |
+| `merge.go` | merge por ruta, conflicto `@layer`, sprite, unicidad de `Fonts()` | **ninguno — puro** |
+| `emit.go` | minificación, shell HTML, escritura | `FS` |
+| `pipeline.go` | composición de las cuatro; única API pública | — |
+
+Que `merge.go` sea **puro** es el punto: sus tests corren sin toolchain, sin
+filesystem y sin servidor.
+
+`emit.go` se porta desde `assetmin` (`filewrite.go`, `html.go`, `injection.go`,
+`fonts.go`, `svg.go`, `ssr_register.go`) más la mitad de compilación de
+`ssr_loader.go` (`routeAssets`, `resolveAndApplyRootCSS`, `isRootDir`). **No
+re-implementar desde cero:** portar y sustituir las llamadas directas por el
+puerto.
+
+`assetmin` no desaparece: `emit.go` lo **usa** como librería de minificación.
+Esa es su única responsabilidad después de esta cadena.
+
+### 7.1 El puerto `FS` con dos adaptadores — en memoria por defecto
+
+**Requisito de producto, no negociable:** probar un componente no debe dejar
+archivos en disco. Hoy `components/*/web/public` no existe en ninguno de los
+trece componentes, y `layout/platformd/web/` contiene solo `client.go`. En modo
+servidor interno **no se escribe nada**, ni siquiera el `.wasm` (`UseDiskStorage()`
+se llama únicamente en la rama de disco). Eso se conserva.
+
+El problema real de hoy no son los dos destinos: son **dos ensamblados
+independientes** que hay que reconciliar a mano. La costura correcta es el
+puerto `FS`:
+
+```
+emit ──escribe a través del puerto FS──┬── osFS   → web/public/ (producción, sitec build)
+                                       └── memFS  → en memoria  (desarrollo, por defecto)
+```
+
+**Un solo `emit`, dos adaptadores.** `emit.go` nunca llama a `os.WriteFile`
+directamente.
+
+```go
+// FS es el sumidero de la etapa emit. memFS no toca disco; osFS escribe.
+type FS interface {
+	Write(path string, content []byte, mediatype string) error
+	Read(path string) ([]byte, string, bool)
+	List() []Artifact
+}
+
+// Artifact se autodescribe: la ruta ES la URL. No hay una segunda tabla de
+// rutas que mantener en sincronía.
+type Artifact struct {
+	Path      string
+	Mediatype string
+	Content   []byte
+}
+```
+
+### 7.2 El subpaquete `serve` enumera, no declara
+
+**Paquete nuevo `serve/`**, portado desde `assetmin/http.go` — pero **sin** su
+tabla de rutas escrita a mano:
+
+```go
+// package serve
+func RegisterRoutes(r router.Router, fs sitec.FS)   // recorre fs.List()
+```
+
+`assetmin/http.go` registra hoy cuatro handlers nombrados a mano
+(`indexHtmlHandler`, `mainStyleCssHandler`, `mainJsHandler`,
+`faviconSvgHandler`) más los standalone. Esa lista es una **segunda fuente de
+verdad** sobre qué artefactos existen, y es exactamente lo que se desincroniza.
+Sustituirla por un recorrido de `fs.List()`.
+
+Conservar el matiz de `Cache-Control` que ya existe: `no-store` para texto
+mutable en desarrollo, `immutable` en producción.
+
+Va en un **subpaquete** para que `cmd/sitec` no arrastre `tinywasm/router`: el
+CLI usa `osFS` y sale, no sirve nada.
+
+**Por qué `serve` está aquí y no en `httpd`:** `serve` entrega los artefactos
+de *este* compilador; `httpd.PublicDir` es un contrato genérico sobre un
+directorio y sigue sirviendo el caso de disco sin cambios. Ninguno duplica al
+otro: uno lee del sink en memoria, el otro del sistema de archivos.
+
+### 7.3 Escritura atómica en `osFS`
+
+`osFS` escribe a un temporal en el mismo directorio y renombra. Un fallo a mitad
+debe dejar el archivo anterior intacto, nunca uno truncado — un CSS a medias es
+peor que uno viejo.
+
+**Aceptación:**
+
+- `merge.go` no importa `os`, `os/exec` ni ningún puerto.
+- `cmd/sitec` no importa `tinywasm/router`.
+- `emit.go` no llama a `os.WriteFile`; solo al puerto `FS`.
+- `serve` no contiene ninguna ruta literal: sale toda de `fs.List()`.
+- **Tras `cd components/calendarslider && tinywasm -tui`, `git status` en
+  `tinywasm/components` está limpio.** Esta es la comprobación de que el modo
+  memoria sigue sin tocar disco; si falla, la regresión es invisible de otro
+  modo.
+
+---
+
+## Etapa 8 — el CLI `cmd/sitec`
+
+Contrato de ejecución. Lo van a manejar un runner de CI y un LLM, así que es
+obligatorio:
+
+- **Sin argumentos → ayuda por stdout, exit `0`.** Nunca bloquear en stdin ni en
+  una TUI.
+- `sitec build [-o dir]` → corre el pipeline, escribe la salida, exit `0`/`1`.
+- `sitec check` → corre `select` + `extract` + `merge` y reporta, **sin escribir
+  nada**. Es la puerta de CI que habría cazado el fallo de calendarslider antes
+  de desplegar.
+- **stdout = solo datos** (manifiesto JSON de lo producido); **stderr = todos los
+  logs y diagnósticos**.
+- Exit `0` en éxito y en ayuda; distinto de cero ante flags inválidos o fallo del
+  pipeline.
+- Sin watcher, sin navegador, sin demonio, sin red.
+
+`cmd/sitec/main.go` contiene **solo**: parseo de flags, inyección de
+dependencias, e imprimir/salir.
+
+```go
+// ❌ prohibido: lógica dentro de cmd/
+func isProjectValid() bool { ... }
+
+// ✅ correcto: exportado en la librería
+func ValidateProject(dir string) error
+```
+
+**Aceptación:** un job de CI que corre `sitec check` falla ante un defecto de la
+clase calendarslider y pasa en caso contrario, sin TUI y sin driver de base de
+datos en su grafo de dependencias.
+
+---
+
+## Restricciones
+
+### Este repo es herramienta de backend
+
+`sitec` corre en la máquina del desarrollador y en CI, y maneja el toolchain de
+Go. Usa legítimamente la biblioteca estándar: `os`, `os/exec`, `encoding/json`,
+`go/ast`, `go/parser`, `sync`, `io`. La regla del ecosistema de "nada de
+biblioteca estándar en código WASM" **no aplica aquí** — no "arregles" esos
+imports. Para errores, usar `github.com/tinywasm/fmt` (`fmt.Err`).
+
+### Sin strings hardcodeados
+
+Todo string repetido es una constante con nombre. Las que este plan exige:
 `skippedUnreachableFmt`, `mainPackageName`, `errNoAssetsExtracted`,
 `buildTargets`.
 
-### Behaviour that must NOT change
+### Sin carpetas `internal/`
 
-- The producer-panic recovery in the generated `main.go` template
-  (`failures []failure`) stays as is.
-- `MergeResultsFor`, the `@layer` conflict check and the `Fonts()` uniqueness
-  check are unchanged.
-- Producers are still detected by **name and receiver type only**; correctness
-  of the call stays delegated to the Go compiler.
+En este ecosistema una carpeta `internal/` señala un fork o duplicación de una
+dependencia en vez de contribuir aguas arriba. No crear ninguna.
 
-### Do not
+### Cambio con ruptura, sin retrocompatibilidad
 
-- Do not call `go get` or `go mod tidy` from this repo. Repairing a consumer's
-  `go.mod` is not ssr's job, and for the calendarslider case it does not work.
-- Do not add `gopush` or `codejob` calls anywhere.
-- Do not keep a "walk everything" fallback alongside the reachability filter.
-  The only fallback is the explicit `known == false` case in 1.4.
+No dejes alias, ni tipos deprecados, ni caminos de fallback hacia la API vieja de
+`ssr`. Si algo debe romperse, que rompa en tiempo de compilación y quede
+registrado en el plan del repo afectado.
+
+### Deuda heredada del movimiento
+
+El template del `main.go` generado (en `invoke.go`) declara `type ssr struct`.
+Es el tipo del **programa generado**, no de este paquete. Renómbralo a `assets`
+al separar `extract.go` en la etapa 7.
+
+### No hacer
+
+- No llamar a `go get` ni `go mod tidy` desde este repo. Reparar el `go.mod` de
+  un consumidor no es tarea del compilador, y para el caso de calendarslider está
+  demostrado que no funciona.
+- No añadir llamadas a `gopush` ni a `codejob`.
+- No dejar un camino de "recorrer todo" en paralelo al filtro por alcance. El
+  único fallback es el caso explícito de `known == false`.
 
 ---
 
-## Stages
+## Etapas
 
-| # | Scope | Files | Acceptance |
+| # | Alcance | Archivos | Aceptación |
 |---|---|---|---|
-| 1 | Scope extraction to the reachable build graph, anchored at the started directory, union of native + WASM | `reach.go` (new), `invoke.go`, `ssr.go`, `tests/extract_dependency_module_test.go` | 9 of 13 component packages from `layout/platformd`; `TestExtractAll_UnreachablePackageDoesNotKillExtraction` passes |
-| 2 | `package main` is never an SSR package; scanner records the package clause | `scanner.go`, `invoke.go` | demo dirs never selected in any module |
-| 3 | One extraction, one error; empty = failure | `ssr.go`, `extract.go` | `grep -rn "ssr extract error" .` empty in non-test code |
-| 4 | Warn once about asset libraries | `ssr.go` | `TestExtractAll_NoAssetLibrariesWarnedOnce` passes |
+| 1 *(gate)* | Reparar los 2 tests de integración; `assetmin` apunta a `sitec.Assets` | `tests/consumer_hot_reload_test.go`, `tests/extract_root_wins_over_framework_test.go` | `go test ./tests/` compila |
+| 2 | Extraer solo el grafo alcanzable, anclado en el dir de arranque, unión nativo+WASM | `reach.go` (nuevo), `invoke.go`, `pipeline.go`, `tests/extract_dependency_module_test.go` | 9 de 13 paquetes desde `layout/platformd` |
+| 3 | `package main` nunca es paquete; el scanner registra la cláusula | `scanner.go`, `invoke.go` | demos nunca seleccionadas en ningún módulo |
+| 4 | Una extracción, un error; vacío = fallo | `pipeline.go`, `merge.go` | `grep -rn "extract error"` vacío fuera de tests |
+| 5 | Avisar una vez sobre asset libraries | `pipeline.go` | pasa `TestExtractAll_NoAssetLibrariesWarnedOnce` |
+| 6 | Puerto `Toolchain` + adaptador | `toolchain.go`, `toolchain_exec.go` | `exec.Command("go"` solo en el adaptador |
+| 7 | Separar las cuatro etapas; portar `emit` desde `assetmin`; subpaquete `serve/` | `select.go`, `extract.go`, `merge.go`, `emit.go`, `pipeline.go`, `serve/` | `merge.go` sin `os`/`os/exec`; `cmd/sitec` sin `router` |
+| 8 | CLI headless | `cmd/sitec/main.go` | `sitec check` falla ante calendarslider; sin args → ayuda, exit 0 |
 
-Final gate:
+Puerta final:
 
 ```
 go test ./...
 ```
 
-fully green, including the pre-existing tests in `tests/`.
+en verde, más una corrida real de `sitec build` y `sitec check` sobre
+`tinywasm/layout/platformd` y sobre `veltylabs/mjosefa-cms`.
+
+## En cola tras este plan
+
+[PLAN_HTML_EN_APP.md](PLAN_HTML_EN_APP.md) — el HTML de los módulos debe caer
+DENTRO de `#app`. Vivía en `tinywasm/assetmin`, pero los archivos que toca
+(`html.go` y `routeAssets`) son política de compilación y llegan aquí en la
+etapa 7. Ejecutarlo después de esa etapa.

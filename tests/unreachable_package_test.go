@@ -1,6 +1,6 @@
 //go:build !wasm
 
-package ssr_test
+package sitec_test
 
 import (
 	"os"
@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/tinywasm/modfind"
-	"github.com/tinywasm/ssr"
+	"github.com/tinywasm/sitec"
 )
 
 // writeTree writes a set of relative path -> content pairs under base.
@@ -107,7 +107,7 @@ func (a *App) RenderCSS() stylesheet { return ".app{color:green}" }
 func TestExtractAll_UnreachablePackageDoesNotKillExtraction(t *testing.T) {
 	appDir, _, finder := setupUnreachablePackageProject(t)
 
-	e := ssr.New(appDir)
+	e := sitec.New(appDir)
 	e.SetLog(t.Log)
 	e.SetFinder(finder)
 
@@ -166,7 +166,7 @@ func (a *App) RenderCSS() stylesheet { return thisSymbolDoesNotExist }
 	})
 
 	var logged []string
-	e := ssr.New(appDir)
+	e := sitec.New(appDir)
 	e.SetLog(func(a ...any) {
 		var line strings.Builder
 		for _, v := range a {
@@ -202,7 +202,7 @@ func TestExtractAll_NoAssetLibrariesWarnedOnce(t *testing.T) {
 	appDir, _, finder := setupUnreachablePackageProject(t)
 
 	var warnings int
-	e := ssr.New(appDir)
+	e := sitec.New(appDir)
 	e.SetLog(func(a ...any) {
 		for _, v := range a {
 			if strings.Contains(sprint(v), "no asset libraries configured") {

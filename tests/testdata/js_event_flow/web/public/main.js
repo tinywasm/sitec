@@ -1,0 +1,1 @@
+"use strict";const tinyGoRuntime=new Go;WebAssembly.instantiateStreaming(fetch("main.wasm"),tinyGoRuntime.importObject).then(e=>{tinyGoRuntime.run(e.instance)}),console.log("Theme Code"),console.log("Module One"),console.log("Module Two"),console.log("New Module added"),console.log("trigger"),console.log("Module One Renamed")

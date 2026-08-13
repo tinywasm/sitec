@@ -1,6 +1,6 @@
 //go:build !wasm
 
-package ssr_test
+package sitec_test
 
 import (
 	"os"
@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/tinywasm/modfind"
-	"github.com/tinywasm/ssr"
+	"github.com/tinywasm/sitec"
 )
 
 func TestExtractModule_Subpackage(t *testing.T) {
@@ -45,7 +45,7 @@ func (s *Sub) RenderCSS() stylesheet { return stylesheet(".sub{color:red}") }
 		t.Fatalf("write sub/css.go: %v", err)
 	}
 
-	e := ssr.New(parentDir)
+	e := sitec.New(parentDir)
 	e.SetLog(t.Log)
 	// Mock list modules to include the parent module only, simulating go list -m
 	f := modfind.New()

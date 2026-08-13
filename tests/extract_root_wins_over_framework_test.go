@@ -1,6 +1,6 @@
 //go:build !wasm
 
-package ssr_test
+package sitec_test
 
 import (
 	"os"
@@ -11,7 +11,7 @@ import (
 
 	"github.com/tinywasm/assetmin"
 	"github.com/tinywasm/modfind"
-	"github.com/tinywasm/ssr"
+	"github.com/tinywasm/sitec"
 )
 
 // TestExtractAll_AppRootWinsOverFramework reproduces, end to end through the
@@ -108,7 +108,7 @@ func RootCSS() stylesheet {
 }
 `)
 
-	e := ssr.New(appDir)
+	e := sitec.New(appDir)
 	e.SetLog(t.Log)
 	f := modfind.New()
 	f.Seed(appDir, []modfind.Module{

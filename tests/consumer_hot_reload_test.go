@@ -1,6 +1,6 @@
 //go:build !wasm
 
-package ssr_test
+package sitec_test
 
 import (
 	"os"
@@ -15,7 +15,7 @@ import (
 // This file reproduces the exact wiring a consumer application (godev/tinywasm
 // CLI) uses in dev mode:
 //
-//	extractor := ssr.New(root)
+//	extractor := sitec.New(root)
 //	am := assetmin.NewAssetMin(cfg)
 //	am.SetSSRExtractor(extractor)
 //	am.LoadSSRModules()              // initial async load at startup

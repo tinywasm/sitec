@@ -1,6 +1,6 @@
 //go:build !wasm
 
-package ssr_test
+package sitec_test
 
 import (
 	"os"
@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/tinywasm/modfind"
-	"github.com/tinywasm/ssr"
+	"github.com/tinywasm/sitec"
 )
 
 // TestExtractModule_RootWithSSRInSubpackages reproduce un bug real: una app cuyo
@@ -68,7 +68,7 @@ type Catalog struct{}
 func (c *Catalog) RenderCSS() stylesheet { return stylesheet(".catalog{display:grid}") }
 `)
 
-	e := ssr.New(root)
+	e := sitec.New(root)
 	e.SetLog(t.Log)
 	f := modfind.New()
 	f.Seed(root, []modfind.Module{{Path: "example.com/app", Dir: root}})

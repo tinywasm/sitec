@@ -1,6 +1,6 @@
 //go:build !wasm
 
-package ssr_test
+package sitec_test
 
 import (
 	"os"
@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/tinywasm/modfind"
-	"github.com/tinywasm/ssr"
+	"github.com/tinywasm/sitec"
 )
 
 func TestExtract_NoProviderSkipped(t *testing.T) {
@@ -40,7 +40,7 @@ func Hello() string {
 		t.Fatal(err)
 	}
 
-	e := ssr.New(root)
+	e := sitec.New(root)
 	f := modfind.New()
 	f.Seed(root, []modfind.Module{{Path: "example.com/app", Dir: root}})
 	e.SetFinder(f)

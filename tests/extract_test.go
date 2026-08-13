@@ -1,4 +1,4 @@
-package ssr_test
+package sitec_test
 
 import (
 	"os"
@@ -6,13 +6,13 @@ import (
 	"testing"
 
 	"github.com/tinywasm/modfind"
-	"github.com/tinywasm/ssr"
+	"github.com/tinywasm/sitec"
 )
 
 func TestExtractAll_Empty(t *testing.T) {
 	root := t.TempDir()
 	os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/demo\ngo 1.24\n"), 0644)
-	e := ssr.New(root)
+	e := sitec.New(root)
 	f := modfind.New()
 	f.Seed(root, []modfind.Module{{Path: "example.com/demo", Dir: root}})
 	e.SetFinder(f)
@@ -26,7 +26,7 @@ func TestExtractAll_Empty(t *testing.T) {
 func TestExtractModule_NoSSRFiles(t *testing.T) {
 	root := t.TempDir()
 	os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/demo\ngo 1.24\n"), 0644)
-	e := ssr.New(root)
+	e := sitec.New(root)
 	a, err := e.ExtractModule(root)
 	if err != nil {
 		t.Fatal(err)

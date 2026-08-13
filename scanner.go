@@ -1,4 +1,4 @@
-package ssr
+package sitec
 
 import (
 	"go/ast"

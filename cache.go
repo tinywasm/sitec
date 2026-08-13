@@ -1,4 +1,4 @@
-package ssr
+package sitec
 
 import (
 	"crypto/md5"

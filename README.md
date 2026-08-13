@@ -1,14 +1,20 @@
-# ssr
-<img src="docs/img/badges.svg">
+# sitec
 
-SSR asset extractor for TinyWasm: runs component producers and collects CSS/JS/HTML/SVG/fonts for assetmin.
+Compilador de sitio: toma un árbol de fuentes Go y produce la superficie
+estática desplegable del sitio — hoja de estilos, bundle de scripts, sprite SVG,
+declaración de fuentes y shell HTML.
 
-Module discovery is delegated to [modfind](https://github.com/tinywasm/modfind), ensuring shared and cached module lookups across TinyWasm tools.
+Corre hasta terminar y sale. Es un compilador, no un servidor ni un
+renderizador — pensado para CI/CD tanto como para el arnés de desarrollo.
 
-## Documentation
+```
+sitec              # ayuda, exit 0
+sitec build -o dir # compila y escribe la salida
+sitec check        # valida sin escribir nada (puerta de CI)
+```
 
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — what the module is and why: the producer contract, the extraction model, merge and ordering guarantees, and the failure posture.
-- [SPECS.md](docs/SPECS.md) — exact detection rules, merge semantics, error conditions, and the author contract.
-- [DESIGN.md](docs/DESIGN.md) — the reasoning behind each decision and the alternatives rejected.
-- [DOCUMENTATION.md](docs/DOCUMENTATION.md) — documentation standards for this repository.
-- [diagrams/EXTRACTION.md](docs/diagrams/EXTRACTION.md) — the extraction pipeline, and where assets are lost today.
+stdout entrega datos (manifiesto JSON); stderr entrega logs.
+
+## Estado
+
+En construcción. Plan: [docs/PLAN.md](docs/PLAN.md).

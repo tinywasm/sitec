@@ -1,6 +1,6 @@
 //go:build !wasm
 
-package ssr_test
+package sitec_test
 
 import (
 	"os"
@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/tinywasm/modfind"
-	"github.com/tinywasm/ssr"
+	"github.com/tinywasm/sitec"
 )
 
 // writeFixtureApp creates a realistic consumer app layout:
@@ -75,8 +75,8 @@ func (c *Component) RenderCSS() stylesheet { return stylesheet("` + rule + `") }
 	return root
 }
 
-func newSeededExtractor(root string) *ssr.Extractor {
-	e := ssr.New(root)
+func newSeededExtractor(root string) *sitec.Extractor {
+	e := sitec.New(root)
 	f := modfind.New()
 	f.Seed(root, []modfind.Module{{Path: "example.com/app", Dir: root, IsMain: true}})
 	e.SetFinder(f)

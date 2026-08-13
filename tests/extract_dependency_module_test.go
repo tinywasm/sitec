@@ -1,6 +1,6 @@
 //go:build !wasm
 
-package ssr_test
+package sitec_test
 
 import (
 	"os"
@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/tinywasm/modfind"
-	"github.com/tinywasm/ssr"
+	"github.com/tinywasm/sitec"
 )
 
 // Una app real toma sus componentes de OTROS módulos (tinywasm/layout, components), y
@@ -57,7 +57,7 @@ replace example.com/layout => ../layout
 `)
 	write(filepath.Join(appDir, "main.go"), "package main\n\nfunc main() {}\n")
 
-	e := ssr.New(appDir)
+	e := sitec.New(appDir)
 	e.SetLog(t.Log)
 	f := modfind.New()
 	f.Seed(appDir, []modfind.Module{

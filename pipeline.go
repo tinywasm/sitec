@@ -1,17 +1,16 @@
-package ssr
+package sitec
 
 import (
 	"os"
 	"strings"
 	"sync"
 
-	"github.com/tinywasm/assetmin"
 	"github.com/tinywasm/fmt"
 	"github.com/tinywasm/modfind"
 )
 
 const (
-	cssModulePath            = "tinywasm/css"
+	cssModulePath           = "tinywasm/css"
 	noAssetLibrariesWarning = "ssr: no asset libraries configured; packages that import a styling library " +
 		"and declare no producer will NOT fail the build (see SetAssetLibraries)"
 )
@@ -41,7 +40,7 @@ func New(rootDir string) *Extractor {
 	}
 }
 
-func (e *Extractor) SetLog(fn func(...any))     { e.log = fn }
+func (e *Extractor) SetLog(fn func(...any))      { e.log = fn }
 func (e *Extractor) SetFinder(f *modfind.Finder) { e.finder = f }
 
 func (e *Extractor) SetAssetLibraries(libs []string) {
@@ -50,7 +49,7 @@ func (e *Extractor) SetAssetLibraries(libs []string) {
 	e.AssetLibraries = libs
 }
 
-func (e *Extractor) ExtractModule(moduleDir string) (*assetmin.SSRAssets, error) {
+func (e *Extractor) ExtractModule(moduleDir string) (*Assets, error) {
 	e.mu.Lock()
 	if len(e.AssetLibraries) == 0 {
 		e.log(noAssetLibrariesWarning)
@@ -96,7 +95,7 @@ func (e *Extractor) ExtractModule(moduleDir string) (*assetmin.SSRAssets, error)
 	return a, nil
 }
 
-func (e *Extractor) ExtractAll() ([]*assetmin.SSRAssets, error) {
+func (e *Extractor) ExtractAll() ([]*Assets, error) {
 	e.mu.Lock()
 	if len(e.AssetLibraries) == 0 {
 		e.log(noAssetLibrariesWarning)
@@ -107,7 +106,7 @@ func (e *Extractor) ExtractAll() ([]*assetmin.SSRAssets, error) {
 	if err != nil {
 		return nil, err
 	}
-	var all []*assetmin.SSRAssets
+	var all []*Assets
 	for _, m := range modules {
 		a, err := extractAssetsForModule(m, e.rootDir, modules, "", e.cache, e.scanner, e.AssetLibraries, e.log, &e.mu)
 		if err != nil {
