@@ -2,8 +2,6 @@
 PLAN: "feat: sitec — compilador de sitio con responsabilidad única"
 EXECUTOR: jules
 REVIEWER: none
-STATUS: running
-SESSION: 4779389867153322203
 ---
 
 > Este plan se despacha con el flujo CodeJob. Ver skill: agents-workflow.
@@ -67,6 +65,7 @@ nuevo.**
 | `emit_flush.go` | `ssr.go` | `FlushToDisk`, modo SSR |
 | `emit_route.go` | mitad de `ssr_loader.go` | `routeAssets`, `resolveAndApplyRootCSS`, `isRootDir` |
 | `serve/serve.go` | `http.go` | registro de rutas en modo dev |
+| `select_tinygo_verify.go` | `tinywasm/client/tiny_verify_proyect.go` | verificación de compatibilidad TinyGo |
 | `tests/emit_*.go` | `assetmin/tests/` | **24 tests** del pipeline y `emit` |
 | `tests/serve_*.go` | idem | 3 tests de exposición HTTP |
 | `docs/ASSETMIN_*.md` | `assetmin/docs/` | 6 documentos del pipeline |
@@ -342,7 +341,25 @@ type reachability struct {
 }
 ```
 
-### 2.5 Actualizar el test de módulo dependencia
+### 2.5 La verificación de compatibilidad TinyGo llegó aquí
+
+`select_tinygo_verify.go` viene de `tinywasm/client`. Comprueba que el árbol de
+fuentes compila a WASM con TinyGo — que es exactamente la pregunta que `sitec
+check` debe responder en CI, antes de intentar el build.
+
+**Trabajo pendiente:** sus funciones son métodos sobre `*WasmClient`, un tipo que
+no existe aquí ni debe existir. Conviértelas en funciones libres sobre el
+directorio del proyecto:
+
+```go
+// VerifyTinyGoCompatible reporta por qué el árbol de fuentes no compilaría con
+// TinyGo, o nil si es compatible.
+func VerifyTinyGoCompatible(dir string) error
+```
+
+Su test llegó a `tests/select_tinygo_verify_test.go`.
+
+### 2.6 Actualizar el test de módulo dependencia
 
 `tests/extract_dependency_module_test.go` afirma hoy que el CSS del subpaquete
 de un módulo dependencia se extrae **aunque el `main.go` de la app no lo
@@ -635,7 +652,107 @@ de *este* compilador; `httpd.PublicDir` es un contrato genérico sobre un
 directorio y sigue sirviendo el caso de disco sin cambios. Ninguno duplica al
 otro: uno lee del sink en memoria, el otro del sistema de archivos.
 
-### 7.3 Escritura atómica en `osFS`
+### 7.3 El binario WASM es un artefacto más — puerto `WasmBuilder`
+
+`web/public/client.wasm` es un artefacto desplegable igual que `style.css`, pero
+hoy nadie lo produce dentro de este pipeline: lo compila `tinywasm/client` y lo
+orquesta `app` a mano. Consecuencia: **`sitec build` genera un despliegue
+incompleto** y un job de CI necesita una segunda herramienta que además debe
+conocer la ruta y la convención de nombres, que son conocimiento de este repo.
+
+**Este repo NO compila Go a WASM.** Eso cambia por versión de TinyGo, flags,
+optimización de tamaño y el glue `wasm_exec.js` — otra razón para cambiar, que
+pertenece a `tinywasm/client`. Lo que este repo posee es **qué artefactos
+existen, con qué nombre, en qué ruta y hacia qué sink**.
+
+Puerto nuevo en `toolchain.go`:
+
+```go
+// WasmBuilder produce el binario del cliente Y el runtime JS que lo carga.
+// sitec decide sus rutas, sus nombres y su sink; CÓMO compilarlo (TinyGo vs Go,
+// flags) es del adaptador.
+type WasmBuilder interface {
+	Build(dir string) (WasmOutput, error)
+}
+
+// WasmOutput son los DOS artefactos de una compilación. Van juntos a propósito:
+// TinyGo y Go estándar emiten runtimes wasm_exec distintos, así que un binario
+// servido con el loader del otro modo no arranca. Devolverlos por separado
+// permitiría emparejarlos mal.
+type WasmOutput struct {
+	Binary   []byte // el .wasm
+	Filename string // su nombre, que el shell HTML referencia
+	Runtime  string // el glue JS correspondiente al modo usado
+}
+```
+
+#### El adaptador absorbe los cinco pasos de `wasmbuild`
+
+`tinywasm/client/cmd/wasmbuild` **se borra** — no queremos dos herramientas que
+produzcan el mismo artefacto. `sitec build` debe cubrir lo que hacía, y es más
+que compilar:
+
+| # | Paso | Detalle |
+|---|---|---|
+| 1 | `EnsureTinyGoInstalled()` | instalar TinyGo si falta — crítico en CI, donde no está |
+| 2 | verificar `web/client.go` | fallar con un mensaje claro si no existe |
+| 3 | crear el directorio de salida | vía el puerto `FS`, no `os.MkdirAll` |
+| 4 | **generar el runtime JS** | `js.SetRuntime(runtimeFromMode(mode))` + `js.PageBootstrap().Content` |
+| 5 | compilar con el entorno correcto | `TINYGOROOT` y `PATH` inyectados |
+
+El paso 4 es el que más fácil se pierde al portar, y su síntoma es una página en
+blanco sin error: el binario existe, el loader es del otro modo, y nada arranca.
+
+Su test ya está aquí, en `tests/build_wasm_test.go` (venía de
+`client/tests/wasmbuild_test.go`). Es el criterio de aceptación de `sitec build`
+— incluye `TestRunWasmBuild_IncludesTinyGoEnv`, que cubre el paso 5.
+
+El adaptador real envuelve **`tinywasm/gobuild`**, que es quien compila de
+verdad (`New`, `CompileProgram`, `BuildArguments`, `Cancel`). `tinywasm/client`
+**no compila nada**: configuraba tres `gobuild.New(...)` y delegaba, por eso está
+siendo disuelto —
+https://github.com/tinywasm/client/blob/main/docs/PLAN.md
+
+`app` inyecta el adaptador, porque es quien decide *qué modo* se usa (Go estándar
+vs TinyGo debug vs TinyGo producción, elegido en la TUI). Este repo decide
+*dónde* aterriza el binario y con qué nombre.
+
+#### Por qué esto no es opcional
+
+En `app/section-build.go` la relación existe hoy como **un comentario que ordena
+dos llamadas**:
+
+```go
+// Must happen BEFORE assetmin flushes because assetmin embeds the
+// wasm filename (which depends on client mode) into main.js / index.html.
+h.WasmClient.UseDiskStorage()
+h.WasmClient.Compile()
+h.AssetsHandler.FlushToDisk()
+```
+
+El shell HTML **ya** referencia el nombre del binario, y ese nombre depende del
+modo del cliente. Hoy el orden lo garantiza un humano leyendo un comentario; con
+el binario dentro del conjunto de artefactos lo garantiza el pipeline.
+
+#### Un solo sink, no dos interruptores
+
+`WasmClient.UseDiskStorage()` es un switch memoria-vs-disco **paralelo** al de
+los assets. Son la misma decisión tomada dos veces y coordinada a mano.
+
+El binario va al mismo `FS` que el resto: `memFS` en desarrollo —probar un
+componente no deja ningún archivo, tampoco un `.wasm` de 3.7 MB— y `osFS` en
+producción y en `sitec build`.
+
+**Aceptación:**
+
+- `sitec build` produce `client.wasm` **y su `script.js`** junto a `style.css` en
+  el mismo sink, y el `index.html` generado referencia el nombre real del binario.
+- El runtime JS emitido corresponde al modo con el que se compiló el binario.
+- Pasan los tests de `tests/build_wasm_test.go`.
+- Ningún test necesita ordenar a mano "compila el wasm antes de emitir".
+- En modo memoria no se escribe ningún `.wasm` a disco.
+
+### 7.4 Escritura atómica en `osFS`
 
 `osFS` escribe a un temporal en el mismo directorio y renombra. Un fallo a mitad
 debe dejar el archivo anterior intacto, nunca uno truncado — un CSS a medias es
@@ -661,7 +778,9 @@ obligatorio:
 
 - **Sin argumentos → ayuda por stdout, exit `0`.** Nunca bloquear en stdin ni en
   una TUI.
-- `sitec build [-o dir]` → corre el pipeline, escribe la salida, exit `0`/`1`.
+- `sitec build [-o dir]` → corre el pipeline **completo**, incluido el binario
+  WASM, escribe la salida, exit `0`/`1`. Un despliegue sin `client.wasm` no es un
+  despliegue.
 - `sitec check` → corre `select` + `extract` + `merge` y reporta, **sin escribir
   nada**. Es la puerta de CI que habría cazado el fallo de calendarslider antes
   de desplegar.
@@ -742,7 +861,7 @@ al separar `extract.go` en la etapa 7.
 | 4 | Una extracción, un error; vacío = fallo | `pipeline.go`, `merge.go` | `grep -rn "extract error"` vacío fuera de tests |
 | 5 | Avisar una vez sobre asset libraries | `pipeline.go` | pasa `TestExtractAll_NoAssetLibrariesWarnedOnce` |
 | 6 | Puerto `Toolchain` + adaptador | `toolchain.go`, `toolchain_exec.go` | `exec.Command("go"` solo en el adaptador |
-| 7 | Separar las cuatro etapas; portar `emit` desde `assetmin`; subpaquete `serve/` | `select.go`, `extract.go`, `merge.go`, `emit.go`, `pipeline.go`, `serve/` | `merge.go` sin `os`/`os/exec`; `cmd/sitec` sin `router` |
+| 7 | Separar las cuatro etapas; portar `emit`; subpaquete `serve/`; puerto `WasmBuilder` | `select.go`, `extract.go`, `merge.go`, `emit.go`, `pipeline.go`, `serve/` | `merge.go` sin `os`/`os/exec`; `cmd/sitec` sin `router` |
 | 8 | CLI headless | `cmd/sitec/main.go` | `sitec check` falla ante calendarslider; sin args → ayuda, exit 0 |
 
 Puerta final:
