@@ -33,7 +33,7 @@ func TestAssetRoutesArePublic(t *testing.T) {
 	}
 
 	for _, route := range routes {
-		if !route.Public {
+		if !route.IsPublic() {
 			t.Errorf("asset route %q is private → a browser gets 403 Forbidden; it must be .Public()", route.Path)
 		}
 	}

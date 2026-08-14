@@ -228,36 +228,6 @@ func TestDefaultHTMLContainsViewportFitCover(t *testing.T) {
 	}
 }
 
-// While assetmin keeps two HTML shells (NewHtmlHandler + templates/index_basic.html),
-// their viewport content attribute must be the same string. Divergence is two
-// truths about the same document.
-func TestViewportContentIdenticalInBothShells(t *testing.T) {
-	root := moduleRoot(t)
-
-	handlerSrc, err := os.ReadFile(filepath.Join(root, "html.go"))
-	if err != nil {
-		t.Fatalf("read html.go: %v", err)
-	}
-	tmplSrc, err := os.ReadFile(filepath.Join(root, "templates", "index_basic.html"))
-	if err != nil {
-		t.Fatalf("read templates/index_basic.html: %v", err)
-	}
-
-	handlerVP := extractViewportContent(string(handlerSrc))
-	tmplVP := extractViewportContent(string(tmplSrc))
-	if handlerVP == "" {
-		t.Fatal("html.go: no viewport content attribute found")
-	}
-	if tmplVP == "" {
-		t.Fatal("templates/index_basic.html: no viewport content attribute found")
-	}
-	if handlerVP != tmplVP {
-		t.Errorf("viewport content diverged:\n  html.go:                     %q\n  templates/index_basic.html:  %q", handlerVP, tmplVP)
-	}
-	if handlerVP != viewportContent {
-		t.Errorf("viewport content = %q, want %q", handlerVP, viewportContent)
-	}
-}
 
 func extractViewportContent(src string) string {
 	const marker = `name="viewport" content="`

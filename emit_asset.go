@@ -2,7 +2,6 @@ package sitec
 
 import (
 	"bytes"
-	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -44,18 +43,6 @@ func (h *asset) AddDynamicContent(fn func() []byte) {
 	h.cacheValid = false
 }
 
-// WriteToDisk writes the content file to disk at the specified path
-// It creates parent directories if they don't exist
-func (f *ContentFile) WriteToDisk() error {
-	// Create parent directories if they don't exist
-	dir := filepath.Dir(f.Path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-
-	// Write content to the file
-	return os.WriteFile(f.Path, f.Content, 0644)
-}
 
 // newAssetFile creates a new asset with the specified parameters
 func newAssetFile(outputName, mediaType string, ac *Config, initCode func() (string, error)) *asset {

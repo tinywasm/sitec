@@ -4,6 +4,7 @@ package sitec_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -24,6 +25,15 @@ func writeProj(t *testing.T, root, path, content string) {
 	}
 }
 
+func getGomodCache() string {
+	cmd := exec.Command("go", "env", "GOMODCACHE")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // fontModuleDir resolves the monorepo checkout of tinywasm/font (no network).
 func fontModuleDir(t *testing.T) string {
 	t.Helper()
@@ -37,10 +47,19 @@ func fontModuleDir(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(abs, "go.mod")); err != nil {
-		t.Fatalf("font module not found at %s: %v", abs, err)
+	if _, err := os.Stat(filepath.Join(abs, "go.mod")); err == nil {
+		return abs
 	}
-	return abs
+	// Fallback to the mod cache path dynamically
+	gomodCache := getGomodCache()
+	if gomodCache != "" {
+		fallback := filepath.Join(gomodCache, "github.com", "tinywasm", "font@v0.0.4")
+		if _, err := os.Stat(filepath.Join(fallback, "go.mod")); err == nil {
+			return fallback
+		}
+	}
+	t.Fatalf("font module not found at %s or fallback GOMODCACHE", abs)
+	return ""
 }
 
 func writeAppWithFont(t *testing.T, root string, packages map[string]string) {

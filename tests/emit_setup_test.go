@@ -60,7 +60,10 @@ func setupTestEnv(testCase string, t *testing.T, objects ...any) *TestEnvironmen
 	// Check if any of the objects is a ContentFile and write it to disk
 	for _, obj := range objects {
 		if file, ok := obj.(*sitec.ContentFile); ok {
-			if err := file.WriteToDisk(); err != nil {
+			dir := filepath.Dir(file.Path)
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				t.Logf("Error making directory %s: %v", dir, err)
+			} else if err := os.WriteFile(file.Path, file.Content, 0644); err != nil {
 				t.Logf("Error writing ContentFile to disk: %v", err)
 			}
 		}

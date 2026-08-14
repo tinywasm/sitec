@@ -25,3 +25,18 @@ type Assets struct {
 	IsRoot      bool
 	IsFramework bool
 }
+
+// FS es el sumidero de la etapa emit. memFS no toca disco; osFS escribe.
+type FS interface {
+	Write(path string, content []byte, mediatype string) error
+	Read(path string) ([]byte, string, bool)
+	List() []Artifact
+}
+
+// Artifact se autodescribe: la ruta ES la URL. No hay una segunda tabla de
+// rutas que mantener en sincronía.
+type Artifact struct {
+	Path      string
+	Mediatype string
+	Content   []byte
+}

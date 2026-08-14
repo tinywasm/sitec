@@ -1,4 +1,4 @@
-# Architecture of `tinywasm/ssr`
+# Architecture of `sitec`
 
 Defines the **what** and **why** of asset extraction. Abstract structure only —
 exact detection rules, merge semantics and error conditions are in
@@ -7,7 +7,7 @@ exact detection rules, merge semantics and error conditions are in
 
 ---
 
-## 1. What `tinywasm/ssr` is
+## 1. What `sitec` is
 
 The build-time extractor. It finds every package in a project that produces
 assets, runs their producers, and hands the results to `assetmin` as one set per
@@ -28,11 +28,11 @@ cached across `tinywasm` tools.
 |---|---|---|
 | `tinywasm/css` | **Values** — the token catalog, light/dark switching, contrast guarantees | Know anything about components |
 | `tinywasm/widget` | **Decisions** — which token applies to which part in which state | Invent a value |
-| `tinywasm/ssr` | **Delivery** — collect the sheets actually used, order and deduplicate them | Know what a widget is |
+| `sitec` | **Delivery** — collect the sheets actually used, order and deduplicate them | Know what a widget is |
 
 See [diagrams/EXTRACTION.md](diagrams/EXTRACTION.md).
 
-`ssr` knows nothing about widgets, surfaces or layers. It knows that some
+`sitec` knows nothing about widgets, surfaces or layers. It knows that some
 packages produce strings of CSS and that those strings must arrive at `assetmin`
 complete, ordered, and without redundancy.
 

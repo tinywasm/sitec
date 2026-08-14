@@ -1,4 +1,4 @@
-# Specification — `tinywasm/ssr`
+# Specification — `sitec`
 
 Strict functional requirements: exact detection rules, merge semantics, error
 conditions and output shape. Structure and reasoning are not repeated here — see

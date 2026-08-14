@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sync"
+	"time"
 
 	"github.com/tdewolff/minify/v2"
 	"github.com/tdewolff/minify/v2/css"
@@ -28,7 +29,7 @@ type AssetMin struct {
 	indexHtmlHandler    *asset
 	min                 *minify.M
 	ssrEnabled          bool              // SSR branch activation flag
-	initialLoadFailed   bool              // true tras agotar los reintentos de ExtractAll; el próximo evento SSR debe reintentar el escaneo completo
+	InitialLoadFailed   bool              // true tras agotar los reintentos de ExtractAll; el próximo evento SSR debe reintentar el escaneo completo
 	diskMirrored        bool              // If true, assets are being mirrored to disk
 	allAssets           map[string]*asset // Keyed by outputPath - dedup
 	log                 func(message ...any)
@@ -45,6 +46,131 @@ type AssetMin struct {
 	spriteMu            sync.RWMutex
 	fontsMu             sync.RWMutex
 	fonts               font.Declaration // root module only; zero-value = none
+	fs                  FS
+	wasmFilename        string
+	wasmRuntime         string
+	wasmMu              sync.Mutex
+	directArtifacts     []Artifact // pre-built binaries written via Write(), e.g. the WASM binary
+}
+
+func (c *AssetMin) SetFS(fs FS) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.fs = fs
+}
+
+func (c *AssetMin) SetWasm(filename string, runtime string) {
+	c.wasmMu.Lock()
+	defer  c.wasmMu.Unlock()
+	c.wasmFilename = filename
+	c.wasmRuntime = runtime
+}
+
+type ImageProcessor interface {
+	UnobservedFiles() []string
+}
+
+type SSRExtractor interface {
+	ExtractModule(moduleDir string) (*Assets, error)
+	ExtractAll() ([]*Assets, error)
+}
+
+func (c *AssetMin) activeMinifier() *minify.M {
+	if c.minifyEnabled {
+		return c.min
+	}
+	return nil
+}
+
+func (c *AssetMin) SetSSRExtractor(e SSRExtractor) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ssrExtractor = e
+}
+
+func (c *AssetMin) SetImageProcessor(ip ImageProcessor) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.imageProcessor = ip
+}
+
+func (c *AssetMin) LoadSSRModules() {
+	c.mu.Lock()
+	c.ssrEnabled = true
+	c.mu.Unlock()
+	c.ssrLoading.Add(1)
+	go func() {
+		defer c.ssrLoading.Done()
+		c.mu.Lock()
+		extractor := c.ssrExtractor
+		c.mu.Unlock()
+		if extractor == nil {
+			return
+		}
+		all, err := extractor.ExtractAll()
+		if err != nil {
+			c.writeMessage("SSR extract error:", err)
+			return
+		}
+		c.mu.Lock()
+		for _, a := range all {
+			if a == nil {
+				continue
+			}
+			if err := c.routeAssets(a, a.IsRoot, a.IsFramework); err != nil {
+				c.writeMessage("route assets error:", err)
+			}
+		}
+		c.resolveAndApplyRootCSS()
+		c.mu.Unlock()
+	}()
+}
+
+func (c *AssetMin) ReloadSSRModule(moduleDir string) error {
+	c.mu.Lock()
+	failed := c.InitialLoadFailed
+	c.mu.Unlock()
+
+	if failed {
+		c.mu.Lock()
+		c.InitialLoadFailed = false
+		c.mu.Unlock()
+		c.LoadSSRModules()
+		return nil
+	}
+
+	c.mu.Lock()
+	extractor := c.ssrExtractor
+	c.mu.Unlock()
+	if extractor == nil {
+		return nil
+	}
+	a, err := extractor.ExtractModule(moduleDir)
+	if err != nil {
+		return err
+	}
+	if a == nil {
+		return nil
+	}
+	c.mu.Lock()
+	err = c.routeAssets(a, a.IsRoot, a.IsFramework)
+	if err == nil {
+		c.resolveAndApplyRootCSS()
+	}
+	c.mu.Unlock()
+	return err
+}
+
+func (c *AssetMin) WaitForSSRLoad(timeout time.Duration) {
+	ch := make(chan struct{})
+	go func() {
+		c.ssrLoading.Wait()
+		close(ch)
+	}()
+	select {
+	case <-ch:
+	case <-time.After(timeout):
+	}
 }
 
 type rootCandidate struct {
@@ -68,6 +194,7 @@ func NewAssetMin(ac *Config) *AssetMin {
 		standaloneJS:      make(map[string]*asset),
 		standaloneOwners:  make(map[string][]string),
 		moduleSprites:     make(map[string]*sprite.Sprite),
+		fs:                NewOsFS(),
 	}
 
 	if c.AppName == "" {
@@ -91,6 +218,7 @@ func NewAssetMin(ac *Config) *AssetMin {
 	c.mainStyleCssHandler.urlPath = path.Join("/", ac.AssetsURLPrefix, cssMainFileName)
 	c.mainJsHandler.urlPath = path.Join("/", ac.AssetsURLPrefix, jsMainFileName)
 	c.faviconSvgHandler.urlPath = path.Join("/", ac.AssetsURLPrefix, svgFaviconFileName)
+	c.spriteSvgHandler.urlPath = path.Join("/", ac.AssetsURLPrefix, svgMainFileName)
 
 	c.indexHtmlHandler = NewHtmlHandler(ac, htmlMainFileName, c.mainStyleCssHandler.GetURLPath(), c.mainJsHandler.GetURLPath(), c.faviconSvgHandler.GetURLPath())
 	c.indexHtmlHandler.urlPath = "/" // Index is always at root
@@ -232,4 +360,74 @@ func findIndex(s string, substr string) int {
 	}
 	return -1
 }
+
+// FS implementation for AssetMin:
+func (c *AssetMin) Read(path string) ([]byte, string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	a, ok := c.allAssets[path]
+	if !ok {
+		return nil, "", false
+	}
+	content, err := a.GetMinifiedContent(c.activeMinifier())
+	if err != nil {
+		return nil, "", false
+	}
+	return content, a.mediatype, true
+}
+
+// Write writes a pre-built artifact (e.g. the compiled WASM binary) straight to
+// the configured FS sink, bypassing the ContentFile-assembly and minification
+// pipeline used for CSS/JS/HTML fragments.
+//
+// A compiled binary is a finished artifact, not a text fragment to concatenate:
+// WriteContent joins fragments with "\n" between them, which corrupts a binary.
+// And no minifier is registered for arbitrary binary mediatypes (only
+// text/css, javascript, image/svg+xml, text/html are), so routing it through
+// RegenerateCache made minifier.Bytes return ErrNotExist — an error that
+// FlushToDisk's loop silently discarded, leaving the artifact's cache empty and
+// the file written to disk at 0 bytes.
+func (c *AssetMin) Write(outPath string, content []byte, mediatype string) error {
+	c.mu.Lock()
+	fs := c.fs
+	outputDir := ""
+	if c.Config != nil {
+		outputDir = c.Config.OutputDir
+	}
+	c.directArtifacts = append(c.directArtifacts, Artifact{
+		Path:      path.Join("/", outPath),
+		Mediatype: mediatype,
+	})
+	c.mu.Unlock()
+
+	if fs == nil {
+		return fmt.Err("Write", outPath, ": no FS configured")
+	}
+
+	fullPath := outPath
+	if outputDir != "" && !filepath.IsAbs(outPath) {
+		fullPath = filepath.Join(outputDir, outPath)
+	}
+	return fs.Write(fullPath, content, mediatype)
+}
+
+func (c *AssetMin) List() []Artifact {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []Artifact
+	for _, a := range c.allAssets {
+		content, err := a.GetMinifiedContent(c.activeMinifier())
+		if err != nil {
+			continue
+		}
+		out = append(out, Artifact{
+			Path:      a.GetURLPath(),
+			Mediatype: a.mediatype,
+			Content:   content,
+		})
+	}
+	out = append(out, c.directArtifacts...)
+	return out
+}
+
 // assetmin v0.5.0: updated for svg v0.0.5

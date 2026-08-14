@@ -1,7 +1,6 @@
 package sitec
 
 import (
-	"bytes"
 	"fmt"
 	"sort"
 )
@@ -25,8 +24,9 @@ func (c *AssetMin) SetSSRCompiler(fn func() error) {
 // and sets diskMirrored = true only on full success. Returns the first write error.
 func (c *AssetMin) FlushToDisk() error {
 	type snapshot struct {
-		path    string
-		content []byte
+		path      string
+		content   []byte
+		mediatype string
 	}
 
 	c.mu.Lock()
@@ -37,8 +37,9 @@ func (c *AssetMin) FlushToDisk() error {
 	for _, a := range c.allAssets {
 		a.RegenerateCache(c.activeMinifier())
 		snapshots = append(snapshots, snapshot{
-			path:    a.outputPath,
-			content: a.GetCachedMinified(),
+			path:      a.outputPath,
+			content:   a.GetCachedMinified(),
+			mediatype: a.mediatype,
 		})
 	}
 	c.mu.Unlock()
@@ -46,7 +47,7 @@ func (c *AssetMin) FlushToDisk() error {
 	sort.Slice(snapshots, func(i, j int) bool { return snapshots[i].path < snapshots[j].path })
 
 	for _, s := range snapshots {
-		if err := FileWrite(s.path, *bytes.NewBuffer(s.content)); err != nil {
+		if err := c.fs.Write(s.path, s.content, s.mediatype); err != nil {
 			return fmt.Errorf("FlushToDisk %s: %w", s.path, err)
 		}
 	}

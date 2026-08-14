@@ -33,7 +33,7 @@ func (c *AssetMin) renderSpriteNoLock() string {
 	}
 
 	// sprite.String() now emits EmptyWrapper on its own; no post-patching here.
-	return sprite.MergeAll(ordered...).String()
+	return spriteMergeAll(ordered...).String()
 }
 
 func (c *AssetMin) renderSprite() string {
@@ -112,9 +112,39 @@ func (c *AssetMin) addIconFile(id, content string) error {
 
 func (c *AssetMin) checkIconID(id string) error {
 	for _, s := range c.moduleSprites {
-		if s.Has(id) {
+		if spriteHas(s, id) {
 			return fmt.Err("icon ID already registered:", id)
 		}
 	}
 	return nil
+}
+
+func spriteHas(s *sprite.Sprite, id string) bool {
+	if s == nil {
+		return false
+	}
+	for _, def := range s.Icons() {
+		if def.Icon.ID() == id {
+			return true
+		}
+	}
+	return false
+}
+
+func spriteMergeAll(sprites ...*sprite.Sprite) *sprite.Sprite {
+	res := sprite.NewSprite()
+	seen := make(map[string]bool)
+	for _, s := range sprites {
+		if s == nil {
+			continue
+		}
+		for _, def := range s.Icons() {
+			id := def.Icon.ID()
+			if !seen[id] {
+				seen[id] = true
+				res.AddRaw(id, def.Body, def.ViewBox)
+			}
+		}
+	}
+	return res
 }

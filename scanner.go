@@ -21,6 +21,7 @@ type producerDecl struct {
 
 type fileFeatures struct {
 	mtime     time.Time
+	pkgName   string          // f.Name.Name del archivo parseado
 	imports   map[string]bool
 	producers []producerDecl
 }
@@ -123,6 +124,7 @@ func (s *scanner) scanFile(path string) (fileFeatures, error) {
 
 	features := fileFeatures{
 		mtime:     info.ModTime(),
+		pkgName:   f.Name.Name,
 		imports:   imports,
 		producers: producers,
 	}
@@ -135,6 +137,7 @@ func (s *scanner) scanFile(path string) (fileFeatures, error) {
 }
 
 type packageFeatures struct {
+	PkgName   string
 	Imports   map[string]bool
 	Producers []producerDecl
 }
@@ -158,6 +161,9 @@ func (s *scanner) scanPackage(dir string) (packageFeatures, error) {
 			feats, err := s.scanFile(path)
 			if err != nil {
 				continue // Skip/ignore file error
+			}
+			if agg.PkgName == "" {
+				agg.PkgName = feats.pkgName
 			}
 			for imp := range feats.imports {
 				agg.Imports[imp] = true
