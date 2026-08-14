@@ -98,7 +98,7 @@ func (e *Extractor) defaultLister(rootDir, pattern, goos, goarch string) ([]stri
 	return out, nil
 }
 
-func (e *Extractor) results(rootDir string, modules []module) (map[string]CollectorOutput, error) {
+func (e *Extractor) results(projectRoot string, startDir string, modules []module) (map[string]CollectorOutput, error) {
 	hashKey, err := computeModuleHashSet(modules)
 	if err != nil {
 		return nil, fmt.Err("failed to compute module hash", err)
@@ -111,7 +111,7 @@ func (e *Extractor) results(rootDir string, modules []module) (map[string]Collec
 		if l == nil {
 			l = e.defaultLister
 		}
-		results, err := invokeSSRExtractorOnce(rootDir, modules, e.scanner, e.AssetLibraries, l, e.log, e.toolchain)
+		results, err := invokeSSRExtractorOnce(projectRoot, startDir, modules, e.scanner, e.AssetLibraries, l, e.log, e.toolchain)
 		if err != nil {
 			e.mu.Unlock()
 			return nil, err
@@ -166,7 +166,7 @@ func (e *Extractor) ExtractModule(moduleDir string) (*Assets, error) {
 		}
 	}
 
-	results, err := e.results(rootDir, modules)
+	results, err := e.results(rootDir, e.rootDir, modules)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +214,12 @@ func (e *Extractor) ExtractAll() ([]*Assets, error) {
 		return nil, err
 	}
 
-	results, err := e.results(e.rootDir, modules)
+	rootDir, err := findProjectRoot(e.rootDir)
+	if err != nil {
+		rootDir = e.rootDir
+	}
+
+	results, err := e.results(rootDir, e.rootDir, modules)
 	if err != nil {
 		return nil, err
 	}

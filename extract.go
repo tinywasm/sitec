@@ -59,9 +59,9 @@ func (m moduleAlias) HasAnyFeature() bool {
 }
 
 // invokeSSRExtractorOnce generates a combined main.go, runs it once, and returns the aggregated output.
-func invokeSSRExtractorOnce(rootDir string, modules []module, scanner *scanner, assetLibraries []string, lister GraphLister, log func(...any), toolchain Toolchain) (map[string]CollectorOutput, error) {
-	// Create a temporary hidden directory within rootDir to ensure we are in the module context.
-	tmpDir := filepath.Join(rootDir, ".ssr_extract")
+func invokeSSRExtractorOnce(projectRoot string, startDir string, modules []module, scanner *scanner, assetLibraries []string, lister GraphLister, log func(...any), toolchain Toolchain) (map[string]CollectorOutput, error) {
+	// Create a temporary hidden directory within projectRoot to ensure we are in the module context.
+	tmpDir := filepath.Join(projectRoot, ".ssr_extract")
 	if err := os.MkdirAll(tmpDir, 0755); err != nil {
 		return nil, fmt.Err("failed to create temp dir", err)
 	}
@@ -69,7 +69,7 @@ func invokeSSRExtractorOnce(rootDir string, modules []module, scanner *scanner, 
 
 	// Generate main.go that imports all modules
 	mainFile := filepath.Join(tmpDir, "main.go")
-	if err := GenerateExtractorMain(mainFile, modules, scanner, assetLibraries, rootDir, lister, log); err != nil {
+	if err := GenerateExtractorMain(mainFile, modules, scanner, assetLibraries, startDir, lister, log); err != nil {
 		return nil, fmt.Err("failed to generate main.go", err)
 	}
 
@@ -130,7 +130,7 @@ func invokeSSRExtractorOnce(rootDir string, modules []module, scanner *scanner, 
 }
 
 // GenerateExtractorMain writes a main.go file that imports all modules and collects their assets.
-func GenerateExtractorMain(outputFile string, modules []module, scanner *scanner, assetLibraries []string, rootDir string, lister GraphLister, log func(...any)) error {
+func GenerateExtractorMain(outputFile string, modules []module, scanner *scanner, assetLibraries []string, startDir string, lister GraphLister, log func(...any)) error {
 	tmpl := template.Must(template.New("extractor").Parse(`package main
 
 import (
@@ -236,7 +236,7 @@ func main() {
 }
 `))
 
-	aliases, err := modulesToAliases(modules, scanner, assetLibraries, rootDir, lister, log)
+	aliases, err := modulesToAliases(modules, scanner, assetLibraries, startDir, lister, log)
 	if err != nil {
 		return err
 	}

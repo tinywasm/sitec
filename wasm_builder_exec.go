@@ -25,35 +25,17 @@ func (w *defaultWasmBuilder) Build(dir string) (WasmOutput, error) {
 		return WasmOutput{}, fmt.Err("input file not found: web/client.go must exist")
 	}
 
-	// Paso 1 & 5: Ensure tinygo installed and get env
-	var compilerPath string
-	var err error
 	env := os.Environ()
 
 	if !w.stdlib {
-		// TinyGo compilation
-		compilerPath, err = tinygo.EnsureInstalled()
-		if err != nil {
+		// Ensure tinygo is installed
+		if _, err := tinygo.EnsureInstalled(); err != nil {
 			return WasmOutput{}, fmt.Err("cannot install TinyGo: ", err)
 		}
-		binDir := filepath.Dir(compilerPath)
-		// Add binDir to PATH
-		if current := os.Getenv("PATH"); current != "" {
-			os.Setenv("PATH", current+string(os.PathListSeparator)+binDir)
-		} else {
-			os.Setenv("PATH", binDir)
-		}
-
-		// Inject TINYGOROOT
-		p, err := tinygo.GetPath()
-		if err == nil {
-			tinygoRoot := filepath.Dir(filepath.Dir(p))
-			env = append(env, "TINYGOROOT="+tinygoRoot, "PATH="+os.Getenv("PATH"))
-		}
+		// Use tinygo.GetEnv() to get the perfect environment including TINYGOROOT and PATH
+		env = tinygo.GetEnv()
 		env = append(env, "GOOS=js", "GOARCH=wasm")
 	} else {
-		// Standard Go compilation
-		compilerPath = "go"
 		env = append(env, "GOOS=js", "GOARCH=wasm")
 	}
 

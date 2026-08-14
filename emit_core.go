@@ -111,6 +111,7 @@ func (c *AssetMin) LoadSSRModules() {
 			c.writeMessage("SSR extract error:", err)
 			return
 		}
+		c.mu.Lock()
 		for _, a := range all {
 			if a == nil {
 				continue
@@ -120,6 +121,7 @@ func (c *AssetMin) LoadSSRModules() {
 			}
 		}
 		c.resolveAndApplyRootCSS()
+		c.mu.Unlock()
 	}()
 }
 
@@ -149,11 +151,13 @@ func (c *AssetMin) ReloadSSRModule(moduleDir string) error {
 	if a == nil {
 		return nil
 	}
-	if err := c.routeAssets(a, a.IsRoot, a.IsFramework); err != nil {
-		return err
+	c.mu.Lock()
+	err = c.routeAssets(a, a.IsRoot, a.IsFramework)
+	if err == nil {
+		c.resolveAndApplyRootCSS()
 	}
-	c.resolveAndApplyRootCSS()
-	return nil
+	c.mu.Unlock()
+	return err
 }
 
 func (c *AssetMin) WaitForSSRLoad(timeout time.Duration) {

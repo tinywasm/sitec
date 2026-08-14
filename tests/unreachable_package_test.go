@@ -231,3 +231,43 @@ func sprint(v any) string {
 	}
 	return ""
 }
+
+func TestAnchor_StartedSubdirDoesNotLeakSiblingPackages(t *testing.T) {
+	base := t.TempDir()
+	appDir := filepath.Join(base, "app")
+	writeTree(t, appDir, map[string]string{
+		"go.mod": "module example.com/app\n\ngo 1.24\n",
+		"main.go": "package main\n\nfunc main() {}\n",
+		"alpha/css.go": `package alpha
+` + stylesheetHelper + `
+type Alpha struct{}
+func (a *Alpha) RenderCSS() stylesheet { return ".alpha{color:red}" }
+`,
+		"beta/css.go": `package beta
+` + stylesheetHelper + `
+type Beta struct{}
+func (b *Beta) RenderCSS() stylesheet { return ".beta{color:blue}" }
+`,
+	})
+
+	e := sitec.New(filepath.Join(appDir, "alpha"))
+	e.SetLog(t.Log)
+	f := modfind.New()
+	f.Seed(appDir, []modfind.Module{{Path: "example.com/app", Dir: appDir, IsMain: true}})
+	e.SetFinder(f)
+
+	a, err := e.ExtractModule(filepath.Join(appDir, "alpha"))
+	if err != nil {
+		t.Fatalf("ExtractModule: %v", err)
+	}
+	if a == nil {
+		t.Fatal("expected non-nil assets")
+	}
+
+	if !strings.Contains(a.CSS, ".alpha{color:red}") {
+		t.Errorf("expected alpha's CSS, got %q", a.CSS)
+	}
+	if strings.Contains(a.CSS, ".beta{color:blue}") {
+		t.Errorf("LEAKED sibling package CSS not reachable from started dir: %q", a.CSS)
+	}
+}

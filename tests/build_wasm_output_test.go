@@ -61,3 +61,42 @@ func TestWasmbuild_WritesScriptJSFromJSPackage_Stdlib(t *testing.T) {
 		t.Error("Runtime does not contain Go signatures")
 	}
 }
+
+func TestWasmbuild_WritesScriptJSFromJSPackage_TinyGo(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create web/client.go
+	if err := os.MkdirAll(filepath.Join(tmpDir, "web"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "web", "client.go"), []byte("package main\nfunc main() {}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	wb := sitec.NewDefaultWasmBuilder(false) // Stdlib = false (TinyGo)
+	out, err := wb.Build(tmpDir)
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	if out.Filename != "client.wasm" {
+		t.Errorf("expected filename 'client.wasm', got %q", out.Filename)
+	}
+
+	if len(out.Binary) == 0 {
+		t.Error("expected non-empty binary")
+	}
+
+	// Check for TinyGo signatures in the runtime/glue JS
+	found := false
+	tinygoSigs := []string{"runtime.sleepTicks", "runtime.ticks", "tinygo_js"}
+	for _, sig := range tinygoSigs {
+		if strings.Contains(out.Runtime, sig) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Runtime does not contain TinyGo signatures")
+	}
+}
