@@ -1,4 +1,4 @@
-# Design decisions — `tinywasm/ssr`
+# Design decisions — `sitec`
 
 Justifies the decisions behind [ARCHITECTURE.md](ARCHITECTURE.md) and records
 what was rejected. Does not restate the architecture and does not specify

@@ -54,6 +54,12 @@ func (e *Extractor) SetGraphLister(l GraphLister)    { e.lister = l }
 func (e *Extractor) SetToolchain(t Toolchain)        { e.toolchain = t }
 func (e *Extractor) SetWasmBuilder(wb WasmBuilder)    { e.wasmBuilder = wb }
 
+func (e *Extractor) WasmBuilder() WasmBuilder {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.wasmBuilder
+}
+
 func (e *Extractor) SetAssetLibraries(libs []string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()

@@ -11,6 +11,11 @@ import (
 func RegisterRoutes(r router.Router, fs sitec.FS) {
 	for _, art := range fs.List() {
 		a := art
+		// Skip exposing the SVG sprite (icons.svg) as a separate route since it is injected in HTML
+		if strings.HasSuffix(a.Path, "icons.svg") {
+			continue
+		}
+
 		r.PublicAsset(a.Path, func(ctx router.Context) {
 			ctx.SetHeader("Content-Type", a.Mediatype)
 

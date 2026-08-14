@@ -47,12 +47,22 @@ type AssetMin struct {
 	fontsMu             sync.RWMutex
 	fonts               font.Declaration // root module only; zero-value = none
 	fs                  FS
+	wasmFilename        string
+	wasmRuntime         string
+	wasmMu              sync.Mutex
 }
 
 func (c *AssetMin) SetFS(fs FS) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.fs = fs
+}
+
+func (c *AssetMin) SetWasm(filename string, runtime string) {
+	c.wasmMu.Lock()
+	defer  c.wasmMu.Unlock()
+	c.wasmFilename = filename
+	c.wasmRuntime = runtime
 }
 
 type ImageProcessor interface {
@@ -203,6 +213,7 @@ func NewAssetMin(ac *Config) *AssetMin {
 	c.mainStyleCssHandler.urlPath = path.Join("/", ac.AssetsURLPrefix, cssMainFileName)
 	c.mainJsHandler.urlPath = path.Join("/", ac.AssetsURLPrefix, jsMainFileName)
 	c.faviconSvgHandler.urlPath = path.Join("/", ac.AssetsURLPrefix, svgFaviconFileName)
+	c.spriteSvgHandler.urlPath = path.Join("/", ac.AssetsURLPrefix, svgMainFileName)
 
 	c.indexHtmlHandler = NewHtmlHandler(ac, htmlMainFileName, c.mainStyleCssHandler.GetURLPath(), c.mainJsHandler.GetURLPath(), c.faviconSvgHandler.GetURLPath())
 	c.indexHtmlHandler.urlPath = "/" // Index is always at root

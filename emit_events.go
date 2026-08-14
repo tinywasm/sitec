@@ -171,7 +171,18 @@ func (c *AssetMin) UnobservedFiles() []string {
 }
 
 func (c *AssetMin) startCodeJS() (out string, err error) {
+	c.wasmMu.Lock()
+	runtime := c.wasmRuntime
+	filename := c.wasmFilename
+	c.wasmMu.Unlock()
+
 	out = js.UseStrictPrefix
+	if runtime != "" {
+		if filename != "" && filename != "client.wasm" {
+			runtime = strings.ReplaceAll(runtime, "/client.wasm", "/"+filename)
+		}
+		out += "\n" + runtime
+	}
 	return
 }
 

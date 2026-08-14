@@ -73,6 +73,11 @@ func runBuild(args []string) {
 		fmt.Fprintln(os.Stderr, msg...)
 	})
 
+	// Check if web/client.go exists to decide if we compile WASM
+	if _, err := os.Stat("web/client.go"); err == nil {
+		e.SetWasmBuilder(sitec.NewDefaultWasmBuilder(false))
+	}
+
 	all, err := e.ExtractAll()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error de extracción: %v\n", err)
@@ -90,6 +95,19 @@ func runBuild(args []string) {
 
 	am.SetSSRExtractor(e)
 	am.SetFS(sitec.NewOsFS())
+
+	if e.WasmBuilder() != nil {
+		wasmOut, err := e.WasmBuilder().Build(".")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error building WASM: %v\n", err)
+			os.Exit(1)
+		}
+		am.SetWasm(wasmOut.Filename, wasmOut.Runtime)
+		if err := am.Write(wasmOut.Filename, wasmOut.Binary, "application/wasm"); err != nil {
+			fmt.Fprintf(os.Stderr, "Error writing WASM: %v\n", err)
+			os.Exit(1)
+		}
+	}
 
 	for _, a := range all {
 		if err := am.UpdateSSRModule(a.ModuleName, a.CSS, a.JS, a.HTML, a.Icons); err != nil {
