@@ -50,6 +50,7 @@ type AssetMin struct {
 	wasmFilename        string
 	wasmRuntime         string
 	wasmMu              sync.Mutex
+	directArtifacts     []Artifact // pre-built binaries written via Write(), e.g. the WASM binary
 }
 
 func (c *AssetMin) SetFS(fs FS) {
@@ -375,16 +376,39 @@ func (c *AssetMin) Read(path string) ([]byte, string, bool) {
 	return content, a.mediatype, true
 }
 
-func (c *AssetMin) Write(path string, content []byte, mediatype string) error {
+// Write writes a pre-built artifact (e.g. the compiled WASM binary) straight to
+// the configured FS sink, bypassing the ContentFile-assembly and minification
+// pipeline used for CSS/JS/HTML fragments.
+//
+// A compiled binary is a finished artifact, not a text fragment to concatenate:
+// WriteContent joins fragments with "\n" between them, which corrupts a binary.
+// And no minifier is registered for arbitrary binary mediatypes (only
+// text/css, javascript, image/svg+xml, text/html are), so routing it through
+// RegenerateCache made minifier.Bytes return ErrNotExist — an error that
+// FlushToDisk's loop silently discarded, leaving the artifact's cache empty and
+// the file written to disk at 0 bytes.
+func (c *AssetMin) Write(outPath string, content []byte, mediatype string) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	a, ok := c.allAssets[path]
-	if !ok {
-		a = newAssetFile(filepath.Base(path), mediatype, c.Config, nil)
-		c.allAssets[path] = a
+	fs := c.fs
+	outputDir := ""
+	if c.Config != nil {
+		outputDir = c.Config.OutputDir
 	}
-	a.UpdateContent(path, "write", &ContentFile{Path: path, Content: content})
-	return nil
+	c.directArtifacts = append(c.directArtifacts, Artifact{
+		Path:      path.Join("/", outPath),
+		Mediatype: mediatype,
+	})
+	c.mu.Unlock()
+
+	if fs == nil {
+		return fmt.Err("Write", outPath, ": no FS configured")
+	}
+
+	fullPath := outPath
+	if outputDir != "" && !filepath.IsAbs(outPath) {
+		fullPath = filepath.Join(outputDir, outPath)
+	}
+	return fs.Write(fullPath, content, mediatype)
 }
 
 func (c *AssetMin) List() []Artifact {
@@ -402,6 +426,7 @@ func (c *AssetMin) List() []Artifact {
 			Content:   content,
 		})
 	}
+	out = append(out, c.directArtifacts...)
 	return out
 }
 
