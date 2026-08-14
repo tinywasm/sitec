@@ -9,14 +9,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tinywasm/assetmin"
+	"github.com/tinywasm/sitec"
 )
 
 // This file reproduces the exact wiring a consumer application (godev/tinywasm
 // CLI) uses in dev mode:
 //
 //	extractor := sitec.New(root)
-//	am := assetmin.NewAssetMin(cfg)
+//	am := sitec.NewAssetMin(cfg)
 //	am.SetSSRExtractor(extractor)
 //	am.LoadSSRModules()              // initial async load at startup
 //	... file watcher fires ...
@@ -26,10 +26,10 @@ import (
 // rendered styles are wrong (old rules win) until the whole consumer app is
 // restarted.
 
-func newConsumerStack(t *testing.T, root string) *assetmin.AssetMin {
+func newConsumerStack(t *testing.T, root string) *sitec.AssetMin {
 	t.Helper()
 	extractor := newSeededExtractor(root)
-	am := assetmin.NewAssetMin(&assetmin.Config{
+	am := sitec.NewAssetMin(&sitec.Config{
 		OutputDir: filepath.Join(t.TempDir(), "public"),
 		RootDir:   root,
 	})
@@ -38,7 +38,7 @@ func newConsumerStack(t *testing.T, root string) *assetmin.AssetMin {
 	return am
 }
 
-func cssBody(t *testing.T, am *assetmin.AssetMin) string {
+func cssBody(t *testing.T, am *sitec.AssetMin) string {
 	t.Helper()
 	css, err := am.GetMinifiedCSS()
 	if err != nil {

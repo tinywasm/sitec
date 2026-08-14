@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tinywasm/assetmin"
 	"github.com/tinywasm/modfind"
 	"github.com/tinywasm/sitec"
 )
@@ -87,7 +86,7 @@ require example.com/tinywasm/css v0.0.0
 
 replace example.com/tinywasm/css => ../tinywasm-css
 `)
-	write(filepath.Join(appDir, "main.go"), "package main\n\nfunc main() {}\n")
+	write(filepath.Join(appDir, "main.go"), "package main\n\nimport _ \"example.com/tinywasm/css\"\n\nfunc main() {}\n")
 	write(filepath.Join(appDir, "config", "css.go"), `//go:build !wasm
 
 package config
@@ -149,7 +148,7 @@ func RootCSS() stylesheet {
 	// Then the actual contract a running app depends on: wire the SAME
 	// extractor into a real AssetMin exactly like tinywasm/app's
 	// section-build.go does, and check what gets SERVED.
-	am := assetmin.NewAssetMin(&assetmin.Config{OutputDir: t.TempDir()})
+	am := sitec.NewAssetMin(&sitec.Config{OutputDir: t.TempDir()})
 	am.SetSSRExtractor(e)
 	am.LoadSSRModules()
 	am.WaitForSSRLoad(10 * time.Second)

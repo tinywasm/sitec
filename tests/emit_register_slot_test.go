@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tinywasm/sitec"
 )
 
 // Reproduce un SSRExtractor inconsistente: la misma clave de módulo llega
@@ -11,12 +13,12 @@ import (
 // isRoot=false para el mismo módulo). Tras la segunda llamada debe quedar
 // UNA sola entrada, con el contenido nuevo, y ninguna en el slot viejo.
 func TestUpdateSSRModuleInSlot_ReplacesAcrossSlots(t *testing.T) {
-	c := NewAssetMin(&Config{OutputDir: t.TempDir()})
+	c := sitec.NewAssetMin(&sitec.Config{OutputDir: t.TempDir()})
 
-	if err := c.updateSSRModuleInSlot("mod", ".mod{color:blue}", nil, "", nil, "close"); err != nil {
+	if err := c.UpdateSSRModuleInSlot("mod", ".mod{color:blue}", nil, "", nil, "close"); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.updateSSRModuleInSlot("mod", ".mod{color:red}", nil, "", nil, "middle"); err != nil {
+	if err := c.UpdateSSRModuleInSlot("mod", ".mod{color:red}", nil, "", nil, "middle"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -35,16 +37,16 @@ func TestUpdateSSRModuleInSlot_ReplacesAcrossSlots(t *testing.T) {
 }
 
 func TestUpdateContentInSlot_NewEntriesInsertSortedByPath(t *testing.T) {
-	c := NewAssetMin(&Config{OutputDir: t.TempDir()})
+	c := sitec.NewAssetMin(&sitec.Config{OutputDir: t.TempDir()})
 
 	// Arrival order deliberately NOT sorted: zeta, then alpha, then beta.
-	if err := c.updateSSRModuleInSlot("zeta", ".z{}", nil, "", nil, "middle"); err != nil {
+	if err := c.UpdateSSRModuleInSlot("zeta", ".z{}", nil, "", nil, "middle"); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.updateSSRModuleInSlot("alpha", ".a{}", nil, "", nil, "middle"); err != nil {
+	if err := c.UpdateSSRModuleInSlot("alpha", ".a{}", nil, "", nil, "middle"); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.updateSSRModuleInSlot("beta", ".b{}", nil, "", nil, "middle"); err != nil {
+	if err := c.UpdateSSRModuleInSlot("beta", ".b{}", nil, "", nil, "middle"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -73,18 +75,18 @@ func TestUpdateContentInSlot_NewEntriesInsertSortedByPath(t *testing.T) {
 }
 
 type fakeExtractor struct {
-	extractAll    func() ([]*Assets, error)
-	extractModule func(dir string) (*Assets, error)
+	extractAll    func() ([]*sitec.Assets, error)
+	extractModule func(dir string) (*sitec.Assets, error)
 }
 
-func (f *fakeExtractor) ExtractAll() ([]*Assets, error) {
+func (f *fakeExtractor) ExtractAll() ([]*sitec.Assets, error) {
 	if f.extractAll != nil {
 		return f.extractAll()
 	}
 	return nil, nil
 }
 
-func (f *fakeExtractor) ExtractModule(dir string) (*Assets, error) {
+func (f *fakeExtractor) ExtractModule(dir string) (*sitec.Assets, error) {
 	if f.extractModule != nil {
 		return f.extractModule(dir)
 	}
@@ -92,18 +94,18 @@ func (f *fakeExtractor) ExtractModule(dir string) (*Assets, error) {
 }
 
 func TestReloadSSRModule_RetriesFullScanAfterPermanentExtractAllFailure(t *testing.T) {
-	c := NewAssetMin(&Config{OutputDir: t.TempDir(), RootDir: t.TempDir()})
+	c := sitec.NewAssetMin(&sitec.Config{OutputDir: t.TempDir(), RootDir: t.TempDir()})
 
 	extractAllCalls := 0
 	c.SetSSRExtractor(&fakeExtractor{
-		extractAll: func() ([]*Assets, error) {
+		extractAll: func() ([]*sitec.Assets, error) {
 			extractAllCalls++
 			return nil, nil // succeed instantly to avoid retry/backoff sleep
 		},
-		extractModule: func(dir string) (*Assets, error) { return nil, nil },
+		extractModule: func(dir string) (*sitec.Assets, error) { return nil, nil },
 	})
 
-	c.initialLoadFailed = true // simula que ScheduleSSRLoad ya agotó sus 5 reintentos
+	c.InitialLoadFailed = true // simula que ScheduleSSRLoad ya agotó sus 5 reintentos
 
 	_ = c.ReloadSSRModule(t.TempDir())
 
@@ -113,7 +115,7 @@ func TestReloadSSRModule_RetriesFullScanAfterPermanentExtractAllFailure(t *testi
 	if extractAllCalls == 0 {
 		t.Error("ReloadSSRModule after a permanent ExtractAll failure must retry the full scan, not just the single module")
 	}
-	if c.initialLoadFailed {
+	if c.InitialLoadFailed {
 		t.Error("initialLoadFailed must be cleared once a retry has been scheduled")
 	}
 }

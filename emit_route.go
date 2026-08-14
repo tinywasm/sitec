@@ -1,5 +1,9 @@
 package sitec
 
+import (
+	"path/filepath"
+)
+
 // Movido desde assetmin/ssr_loader.go — la MITAD de compilacion.
 // Decide que modulo aporta el RootCSS, los slots de cascada y la copia de
 // fuentes: politica de como se ensambla la salida, no de cuando se reintenta.

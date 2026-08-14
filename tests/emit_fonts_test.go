@@ -15,18 +15,18 @@ import (
 )
 
 type fontsExtractor struct {
-	assets *sitec.SSRAssets
+	assets *sitec.Assets
 }
 
-func (f *fontsExtractor) ExtractModule(moduleDir string) (*sitec.SSRAssets, error) {
+func (f *fontsExtractor) ExtractModule(moduleDir string) (*sitec.Assets, error) {
 	return f.assets, nil
 }
 
-func (f *fontsExtractor) ExtractAll() ([]*sitec.SSRAssets, error) {
+func (f *fontsExtractor) ExtractAll() ([]*sitec.Assets, error) {
 	if f.assets == nil {
 		return nil, nil
 	}
-	return []*sitec.SSRAssets{f.assets}, nil
+	return []*sitec.Assets{f.assets}, nil
 }
 
 func writeFaceFiles(t *testing.T, dir string, family font.Family, skip styleSkip) {
@@ -60,7 +60,7 @@ func TestFonts_CopyAndFontFaceCSS(t *testing.T) {
 		AssetsURLPrefix: "assets",
 	})
 	d := font.Declare("Roboto", "config/fonts")
-	am.SetSSRExtractor(&fontsExtractor{assets: &sitec.SSRAssets{
+	am.SetSSRExtractor(&fontsExtractor{assets: &sitec.Assets{
 		ModuleName: "app",
 		IsRoot:     true,
 		Fonts:      d,
@@ -136,7 +136,7 @@ func TestFonts_MissingFaceErrors(t *testing.T) {
 		}
 		logs = append(logs, b.String())
 	})
-	am.SetSSRExtractor(&fontsExtractor{assets: &sitec.SSRAssets{
+	am.SetSSRExtractor(&fontsExtractor{assets: &sitec.Assets{
 		ModuleName: "app",
 		IsRoot:     true,
 		Fonts:      font.Declare("Roboto", "config/fonts"),
@@ -163,7 +163,7 @@ func TestFonts_SkipCopyWhenUpToDate(t *testing.T) {
 		OutputDir: out,
 	})
 	d := font.Declare("Roboto", "config/fonts")
-	ex := &fontsExtractor{assets: &sitec.SSRAssets{
+	ex := &fontsExtractor{assets: &sitec.Assets{
 		ModuleName: "app",
 		IsRoot:     true,
 		Fonts:      d,
@@ -224,7 +224,7 @@ func TestFonts_NonRootIgnored(t *testing.T) {
 		}
 		logs = append(logs, b.String())
 	})
-	am.SetSSRExtractor(&fontsExtractor{assets: &sitec.SSRAssets{
+	am.SetSSRExtractor(&fontsExtractor{assets: &sitec.Assets{
 		ModuleName: "some/dep",
 		IsRoot:     false,
 		Fonts:      font.Declare("Roboto", "vendor/fonts"),
@@ -255,7 +255,7 @@ func TestFonts_NoDeclarationNoOp(t *testing.T) {
 		RootDir:   root,
 		OutputDir: t.TempDir(),
 	})
-	am.SetSSRExtractor(&fontsExtractor{assets: &sitec.SSRAssets{
+	am.SetSSRExtractor(&fontsExtractor{assets: &sitec.Assets{
 		ModuleName: "app",
 		IsRoot:     true,
 	}})
@@ -280,7 +280,7 @@ func TestFonts_HotReloadUpdatesCSS(t *testing.T) {
 	writeFaceFiles(t, filepath.Join(root, "config", "fonts"), "Roboto", nil)
 	writeFaceFiles(t, filepath.Join(root, "config", "fonts"), "Inter", nil)
 
-	ex := &fontsExtractor{assets: &sitec.SSRAssets{
+	ex := &fontsExtractor{assets: &sitec.Assets{
 		ModuleName: "app",
 		IsRoot:     true,
 		Fonts:      font.Declare("Roboto", "config/fonts"),
@@ -301,12 +301,12 @@ func TestFonts_HotReloadUpdatesCSS(t *testing.T) {
 	}
 
 	// Simulate editing fonts.go → new Declaration.
-	ex.assets = &sitec.SSRAssets{
+	ex.assets = &sitec.Assets{
 		ModuleName: "app",
 		IsRoot:     true,
 		Fonts:      font.Declare("Inter", "config/fonts"),
 	}
-	w := am.NewSSRFileWatcher(nil)
+	w := newSSRFileWatcher(am)
 	if err := w.NewFileEvent("fonts.go", ".go", filepath.Join(root, "config", "fonts.go"), "write"); err != nil {
 		t.Fatal(err)
 	}
@@ -332,4 +332,19 @@ func filterTTF(paths []string) []string {
 
 func toString(v any) string {
 	return fmt.Sprint(v)
+}
+
+type mockWatcher struct {
+	am *sitec.AssetMin
+}
+
+func (w *mockWatcher) NewFileEvent(fileName, extension, filePath, event string) error {
+	if fileName == "fonts.go" || fileName == "css.go" || fileName == "js.go" {
+		return w.am.ReloadSSRModule(filepath.Dir(filePath))
+	}
+	return nil
+}
+
+func newSSRFileWatcher(am *sitec.AssetMin) *mockWatcher {
+	return &mockWatcher{am: am}
 }

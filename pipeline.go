@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/tinywasm/fmt"
+	"github.com/tinywasm/js"
 	"github.com/tinywasm/modfind"
 )
 
@@ -13,6 +14,7 @@ const (
 	cssModulePath           = "tinywasm/css"
 	noAssetLibrariesWarning = "ssr: no asset libraries configured; packages that import a styling library " +
 		"and declare no producer will NOT fail the build (see SetAssetLibraries)"
+	errNoAssetsExtracted    = "sitec: ningún módulo produjo assets; la hoja de estilos saldría vacía"
 )
 
 type module struct {
@@ -27,6 +29,10 @@ type Extractor struct {
 	cache          *ssrCache
 	scanner        *scanner
 	AssetLibraries []string
+	lister         GraphLister
+	warnOnce       *sync.Once
+	toolchain      Toolchain
+	wasmBuilder    WasmBuilder
 	mu             sync.Mutex
 }
 
@@ -37,24 +43,92 @@ func New(rootDir string) *Extractor {
 		cache:          newSSRCache(),
 		scanner:        newScanner(),
 		AssetLibraries: []string{},
+		warnOnce:       &sync.Once{},
+		toolchain:      NewExecToolchain(),
 	}
 }
 
-func (e *Extractor) SetLog(fn func(...any))      { e.log = fn }
-func (e *Extractor) SetFinder(f *modfind.Finder) { e.finder = f }
+func (e *Extractor) SetLog(fn func(...any))          { e.log = fn }
+func (e *Extractor) SetFinder(f *modfind.Finder)     { e.finder = f }
+func (e *Extractor) SetGraphLister(l GraphLister)    { e.lister = l }
+func (e *Extractor) SetToolchain(t Toolchain)        { e.toolchain = t }
+func (e *Extractor) SetWasmBuilder(wb WasmBuilder)    { e.wasmBuilder = wb }
 
 func (e *Extractor) SetAssetLibraries(libs []string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.AssetLibraries = libs
+	e.warnOnce = &sync.Once{}
+}
+
+func (e *Extractor) defaultLister(rootDir, pattern, goos, goarch string) ([]string, error) {
+	env := []string{}
+	if goos != "" {
+		env = append(env, "GOOS="+goos)
+	}
+	if goarch != "" {
+		env = append(env, "GOARCH="+goarch)
+	}
+
+	var data []byte
+	var err error
+	if len(env) > 0 {
+		data, err = e.toolchain.ListEnv(rootDir, env, "-e", "-deps", pattern)
+	} else {
+		data, err = e.toolchain.List(rootDir, "-e", "-deps", pattern)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	lines := strings.Split(string(data), "\n")
+	var out []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out, nil
+}
+
+func (e *Extractor) results(rootDir string, modules []module) (map[string]CollectorOutput, error) {
+	hashKey, err := computeModuleHashSet(modules)
+	if err != nil {
+		return nil, fmt.Err("failed to compute module hash", err)
+	}
+
+	e.mu.Lock()
+	cachedResults, hasCached := e.cache.get(hashKey)
+	if !hasCached {
+		l := e.lister
+		if l == nil {
+			l = e.defaultLister
+		}
+		results, err := invokeSSRExtractorOnce(rootDir, modules, e.scanner, e.AssetLibraries, l, e.log, e.toolchain)
+		if err != nil {
+			e.mu.Unlock()
+			return nil, err
+		}
+
+		e.cache.set(hashKey, results)
+		cachedResults = results
+	}
+	e.mu.Unlock()
+
+	return cachedResults, nil
 }
 
 func (e *Extractor) ExtractModule(moduleDir string) (*Assets, error) {
 	e.mu.Lock()
-	if len(e.AssetLibraries) == 0 {
-		e.log(noAssetLibrariesWarning)
-	}
+	warnOnce := e.warnOnce
 	e.mu.Unlock()
+
+	if len(e.AssetLibraries) == 0 && warnOnce != nil {
+		warnOnce.Do(func() {
+			e.log(noAssetLibrariesWarning)
+		})
+	}
 
 	rootDir, err := findProjectRoot(moduleDir)
 	if err != nil {
@@ -74,7 +148,6 @@ func (e *Extractor) ExtractModule(moduleDir string) (*Assets, error) {
 	}
 
 	if target.dir == "" {
-		// resolve to the containing module for subpackages
 		for _, m := range modules {
 			if strings.HasPrefix(moduleDir, m.dir+string(os.PathSeparator)) {
 				target = m
@@ -86,38 +159,91 @@ func (e *Extractor) ExtractModule(moduleDir string) (*Assets, error) {
 			target = module{path: moduleDir, dir: moduleDir}
 		}
 	}
-	a, err := extractAssetsForModule(target, rootDir, modules, "", e.cache, e.scanner, e.AssetLibraries, e.log, &e.mu)
-	if err != nil || a == nil {
+
+	results, err := e.results(rootDir, modules)
+	if err != nil {
 		return nil, err
 	}
-	a.IsRoot = isRootDir(target.dir, e.rootDir)
-	a.IsFramework = isFrameworkModule(target.path)
+
+	output, ok, err := MergeResultsFor(target.path, results)
+	if err != nil || !ok {
+		return nil, err
+	}
+
+	scripts := make([]*js.Script, 0, len(output.Scripts))
+	for _, s := range output.Scripts {
+		scripts = append(scripts, &js.Script{
+			Name:    s.Name,
+			Content: s.Content,
+		})
+	}
+
+	a := &Assets{
+		ModuleName:  target.path,
+		RootCSS:     output.Root,
+		CSS:         output.Render,
+		JS:          scripts,
+		HTML:        output.HTML,
+		Icons:       output.Icons,
+		Fonts:       output.Fonts,
+		IsRoot:      isRootDir(target.dir, e.rootDir),
+		IsFramework: isFrameworkModule(target.path),
+	}
 	return a, nil
 }
 
 func (e *Extractor) ExtractAll() ([]*Assets, error) {
 	e.mu.Lock()
-	if len(e.AssetLibraries) == 0 {
-		e.log(noAssetLibrariesWarning)
-	}
+	warnOnce := e.warnOnce
 	e.mu.Unlock()
+
+	if len(e.AssetLibraries) == 0 && warnOnce != nil {
+		warnOnce.Do(func() {
+			e.log(noAssetLibrariesWarning)
+		})
+	}
 
 	modules, err := e.discoverModules(e.rootDir)
 	if err != nil {
 		return nil, err
 	}
+
+	results, err := e.results(e.rootDir, modules)
+	if err != nil {
+		return nil, err
+	}
+
 	var all []*Assets
 	for _, m := range modules {
-		a, err := extractAssetsForModule(m, e.rootDir, modules, "", e.cache, e.scanner, e.AssetLibraries, e.log, &e.mu)
+		output, ok, err := MergeResultsFor(m.path, results)
 		if err != nil {
-			e.log("ssr extract error:", m.path, err)
-			continue
+			return nil, err
 		}
-		if a != nil {
-			a.IsRoot = isRootDir(m.dir, e.rootDir)
-			a.IsFramework = isFrameworkModule(m.path)
+		if ok {
+			scripts := make([]*js.Script, 0, len(output.Scripts))
+			for _, s := range output.Scripts {
+				scripts = append(scripts, &js.Script{
+					Name:    s.Name,
+					Content: s.Content,
+				})
+			}
+			a := &Assets{
+				ModuleName:  m.path,
+				RootCSS:     output.Root,
+				CSS:         output.Render,
+				JS:          scripts,
+				HTML:        output.HTML,
+				Icons:       output.Icons,
+				Fonts:       output.Fonts,
+				IsRoot:      isRootDir(m.dir, e.rootDir),
+				IsFramework: isFrameworkModule(m.path),
+			}
 			all = append(all, a)
 		}
+	}
+
+	if len(all) == 0 {
+		return nil, fmt.Err(errNoAssetsExtracted)
 	}
 	return all, nil
 }
@@ -137,13 +263,15 @@ func (e *Extractor) discoverModules(rootDir string) ([]module, error) {
 	return mods, nil
 }
 
-func isRootDir(dir, rootDir string) bool {
-	if rootDir == "" {
-		return false
-	}
-	return dir == rootDir
-}
-
 func isFrameworkModule(path string) bool {
 	return path == cssModulePath || strings.HasSuffix(path, "/"+cssModulePath)
+}
+
+// ValidateProject checks if the given directory contains a valid sitec project.
+func ValidateProject(dir string) error {
+	_, err := findProjectRoot(dir)
+	if err != nil {
+		return fmt.Err("invalid project: " + err.Error())
+	}
+	return nil
 }

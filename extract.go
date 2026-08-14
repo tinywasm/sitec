@@ -1,14 +1,9 @@
 package sitec
 
 import (
-	"bytes"
 	"encoding/json"
-	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"sort"
-	"strings"
 	"text/template"
 
 	"github.com/tinywasm/fmt"
@@ -38,8 +33,9 @@ type ScriptOutput struct {
 }
 
 const (
-	aliasPrefix   = "m_"
-	cssSourceFile = "css.go"
+	aliasPrefix     = "m_"
+	cssSourceFile   = "css.go"
+	mainPackageName = "main"
 )
 
 type receiverFeature struct {
@@ -63,7 +59,7 @@ func (m moduleAlias) HasAnyFeature() bool {
 }
 
 // invokeSSRExtractorOnce generates a combined main.go, runs it once, and returns the aggregated output.
-func invokeSSRExtractorOnce(rootDir string, modules []module, scanner *scanner, assetLibraries []string) (map[string]CollectorOutput, error) {
+func invokeSSRExtractorOnce(rootDir string, modules []module, scanner *scanner, assetLibraries []string, lister GraphLister, log func(...any), toolchain Toolchain) (map[string]CollectorOutput, error) {
 	// Create a temporary hidden directory within rootDir to ensure we are in the module context.
 	tmpDir := filepath.Join(rootDir, ".ssr_extract")
 	if err := os.MkdirAll(tmpDir, 0755); err != nil {
@@ -73,22 +69,14 @@ func invokeSSRExtractorOnce(rootDir string, modules []module, scanner *scanner, 
 
 	// Generate main.go that imports all modules
 	mainFile := filepath.Join(tmpDir, "main.go")
-	if err := GenerateExtractorMain(mainFile, modules, scanner, assetLibraries); err != nil {
+	if err := GenerateExtractorMain(mainFile, modules, scanner, assetLibraries, rootDir, lister, log); err != nil {
 		return nil, fmt.Err("failed to generate main.go", err)
 	}
 
-	// Run go run main.go and capture JSON output
-	cmd := exec.Command("go", "run", "main.go")
-	cmd.Dir = tmpDir
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	// Run go run main.go and capture JSON output using the toolchain port
+	out, err := toolchain.Run(tmpDir, "run", "main.go")
 	if err != nil {
-		errMsg := strings.TrimSpace(stderr.String())
-		if errMsg == "" {
-			errMsg = err.Error()
-		}
-		return nil, fmt.Err(errMsg)
+		return nil, err
 	}
 
 	type rawCollectorOutput struct {
@@ -142,7 +130,7 @@ func invokeSSRExtractorOnce(rootDir string, modules []module, scanner *scanner, 
 }
 
 // GenerateExtractorMain writes a main.go file that imports all modules and collects their assets.
-func GenerateExtractorMain(outputFile string, modules []module, scanner *scanner, assetLibraries []string) error {
+func GenerateExtractorMain(outputFile string, modules []module, scanner *scanner, assetLibraries []string, rootDir string, lister GraphLister, log func(...any)) error {
 	tmpl := template.Must(template.New("extractor").Parse(`package main
 
 import (
@@ -248,7 +236,7 @@ func main() {
 }
 `))
 
-	aliases, err := modulesToAliases(modules, scanner, assetLibraries)
+	aliases, err := modulesToAliases(modules, scanner, assetLibraries, rootDir, lister, log)
 	if err != nil {
 		return err
 	}
@@ -268,163 +256,3 @@ func main() {
 	return tmpl.Execute(f, data)
 }
 
-func expandToSSRPackages(modules []module, scanner *scanner, assetLibraries []string) []module {
-	var out []module
-	seen := make(map[string]bool)
-
-	for _, m := range modules {
-		if m.dir == "" {
-			if !seen[m.path] {
-				seen[m.path] = true
-				out = append(out, m)
-			}
-			continue
-		}
-
-		filepath.WalkDir(m.dir, func(path string, d fs.DirEntry, err error) error {
-			if err != nil || !d.IsDir() {
-				return nil
-			}
-			if path != m.dir {
-				name := d.Name()
-				if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") ||
-					name == "vendor" || name == "testdata" || name == "node_modules" {
-					return filepath.SkipDir
-				}
-				// A nested go.mod is its own module: it comes from the finder, not from here.
-				if _, err := os.Stat(filepath.Join(path, "go.mod")); err == nil {
-					return filepath.SkipDir
-				}
-			}
-
-			feats, err := scanner.scanPackage(path)
-			if err != nil {
-				return nil
-			}
-
-			hasProducers := len(feats.Producers) > 0
-
-			var hasCSSGo bool
-			if _, err := os.Stat(filepath.Join(path, cssSourceFile)); err == nil {
-				hasCSSGo = true
-			}
-
-			var importedLib string
-			if !hasProducers {
-				for imp := range feats.Imports {
-					for _, lib := range assetLibraries {
-						if imp == lib || strings.HasSuffix(imp, "/"+lib) {
-							importedLib = imp
-							break
-						}
-					}
-					if importedLib != "" {
-						break
-					}
-				}
-			}
-
-			if hasProducers || hasCSSGo || importedLib != "" {
-				pkgPath := m.path
-				if rel, err := filepath.Rel(m.dir, path); err == nil && rel != "." {
-					pkgPath = m.path + "/" + filepath.ToSlash(rel)
-				}
-				if !seen[pkgPath] {
-					seen[pkgPath] = true
-					out = append(out, module{path: pkgPath, dir: path})
-				}
-			}
-			return nil
-		})
-	}
-	return out
-}
-
-// modulesToAliases converts module information to alias mappings and detects features.
-func modulesToAliases(modules []module, scanner *scanner, assetLibraries []string) ([]moduleAlias, error) {
-	var aliases []moduleAlias
-	for _, m := range expandToSSRPackages(modules, scanner, assetLibraries) {
-		parts := strings.Split(m.path, "/")
-		alias := strings.ReplaceAll(parts[len(parts)-1], "-", "_")
-		alias = aliasPrefix + alias
-
-		ma := moduleAlias{
-			Path:  m.path,
-			Alias: alias,
-		}
-
-		if m.dir != "" {
-			feats, err := scanner.scanPackage(m.dir)
-			if err != nil {
-				return nil, err
-			}
-
-			groups := make(map[string]*receiverFeature)
-			for _, prod := range feats.Producers {
-				if prod.IsGeneric {
-					return nil, fmt.Err("ssr: package", m.path,
-						"declares producer", prod.Name+"()",
-						"on generic type", prod.ReceiverType+"[…];",
-						"generic receivers cannot be instantiated as a zero value — use a concrete type")
-				}
-				rf, ok := groups[prod.ReceiverType]
-				if !ok {
-					rf = &receiverFeature{Name: prod.ReceiverType}
-					groups[prod.ReceiverType] = rf
-				}
-				switch prod.Name {
-				case "RootCSS":
-					rf.HasRoot = true
-				case "RenderCSS":
-					rf.HasRender = true
-				case "RenderHTML":
-					rf.HasHTML = true
-				case "RenderJS":
-					rf.HasJS = true
-				case "IconSvg":
-					rf.HasIcons = true
-				case "Fonts":
-					rf.HasFonts = true
-				}
-			}
-
-			var receivers []receiverFeature
-			for _, rf := range groups {
-				receivers = append(receivers, *rf)
-			}
-			sort.Slice(receivers, func(i, j int) bool {
-				return receivers[i].Name < receivers[j].Name
-			})
-
-			if len(receivers) == 0 {
-				if _, err := os.Stat(filepath.Join(m.dir, cssSourceFile)); err == nil {
-					return nil, fmt.Err("ssr: package", m.path,
-						"has "+cssSourceFile+" but declares no RootCSS() or RenderCSS();",
-						"expected: func (w *T) RenderCSS() *css.Stylesheet")
-				}
-
-				var importedLib string
-				for imp := range feats.Imports {
-					for _, lib := range assetLibraries {
-						if imp == lib || strings.HasSuffix(imp, "/"+lib) {
-							importedLib = imp
-							break
-						}
-					}
-					if importedLib != "" {
-						break
-					}
-				}
-				if importedLib != "" {
-					return nil, fmt.Err("ssr: package", m.path, "imports", importedLib,
-						"but declares no producer; expected: func (w *T) RenderCSS() *css.Stylesheet")
-				}
-			}
-
-			ma.Receivers = receivers
-		}
-
-		aliases = append(aliases, ma)
-	}
-	return aliases, nil
-}

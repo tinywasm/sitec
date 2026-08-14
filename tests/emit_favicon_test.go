@@ -4,6 +4,7 @@ package sitec_test
 
 import (
 	"github.com/tinywasm/sitec"
+	"github.com/tinywasm/sitec/serve"
 	"github.com/tinywasm/router/mock"
 	"os"
 	"path/filepath"
@@ -67,7 +68,7 @@ func TestFaviconCacheHeaders(t *testing.T) {
 	am.NewFileEvent("favicon.svg", ".svg", faviconPath, "create")
 
 	r := &mock.Router{}
-	am.RegisterRoutes(r)
+	serve.RegisterRoutes(r, am)
 
 	// Verify route is registered
 	routes := r.Routes()
