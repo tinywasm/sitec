@@ -12,7 +12,7 @@ SESSION: 7315472959404904234
 > conservando los 151 commits de historia; GitHub redirige la ruta antigua. El
 > cambio de `module path` es con ruptura y sin retrocompatibilidad. El plan
 > maestro que coordina los demás repos está en
-> https://github.com/tinywasm/app/blob/main/docs/PLAN.md
+> https://github.com/tinywasm/core/blob/main/docs/PLAN.md
 
 # Plan — `sitec`: el compilador de sitio
 
