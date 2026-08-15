@@ -1,4 +1,5 @@
 # sitec
+<img src="docs/img/badges.svg">
 
 Compilador de sitio: toma un árbol de fuentes Go y produce la superficie
 estática desplegable del sitio — hoja de estilos, bundle de scripts, sprite SVG,
