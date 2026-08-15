@@ -109,11 +109,9 @@ func runBuild(args []string) {
 		}
 	}
 
-	for _, a := range all {
-		if err := am.UpdateSSRModule(a.ModuleName, a.CSS, a.JS, a.HTML, a.Icons); err != nil {
-			fmt.Fprintf(os.Stderr, "Error ruteando assets: %v\n", err)
-			os.Exit(1)
-		}
+	if err := am.RouteExtractedAssets(all); err != nil {
+		fmt.Fprintf(os.Stderr, "Error ruteando assets: %v\n", err)
+		os.Exit(1)
 	}
 
 	if err := am.FlushToDisk(); err != nil {

@@ -4,8 +4,6 @@ github.com/tdewolff/parse/v2 v2.8.5 h1:ZmBiA/8Do5Rpk7bDye0jbbDUpXXbCdc3iah4VeUvw
 github.com/tdewolff/parse/v2 v2.8.5/go.mod h1:Hwlni2tiVNKyzR1o6nUs4FOF07URA+JLBLd6dlIXYqo=
 github.com/tdewolff/test v1.0.11 h1:FdLbwQVHxqG16SlkGveC0JVyrJN62COWTRyUFzfbtBE=
 github.com/tdewolff/test v1.0.11/go.mod h1:XPuWBzvdUzhCuxWO1ojpXsyzsA5bFoS3tO/Q3kFuTG8=
-github.com/tinywasm/assetmin v0.4.42 h1:jLKDlkr3s6Ael7D1Pt4II1fyGmLCQW27CNWQc9FT4Xc=
-github.com/tinywasm/assetmin v0.4.42/go.mod h1:cFK776+vgdsz+zQBX90U2q2g2eEqm8JaE1FVC8G28M4=
 github.com/tinywasm/color v0.1.1 h1:S00T0XR42Q3sDpfJELNnF0HFxMh9gApH4SnA0Ml6Q7A=
 github.com/tinywasm/color v0.1.1/go.mod h1:0wqAVE1k2GxXIX/v1G+w97J8YRpispYcDa7M75H+umI=
 github.com/tinywasm/context v0.0.18 h1:uKeiAFo6L/PikGSbUu+xcyELGoa4kXomDNwJOlhxrUE=
@@ -36,5 +34,3 @@ github.com/tinywasm/svg v0.1.8 h1:SoMz1AmTSMcsVrXtmaYW8Pzlp3kYCkR2t6stDf+hAEA=
 github.com/tinywasm/svg v0.1.8/go.mod h1:gZOI1TD2UnOwNpcWGhgsk87ynGd7KJ5fl+75lPT9i6c=
 github.com/tinywasm/tinygo v0.0.11 h1:mdSPat9PcIcT1ZW6y+7DJmAbne2vLHVpTHqTCRL/L/A=
 github.com/tinywasm/tinygo v0.0.11/go.mod h1:AFP4RTqJN9HKR/AWwXSibOF0HwlHIIpBNP0KWO2nvCU=
-github.com/tinywasm/tui v0.1.1 h1:IllMn0ItmGdPX4VDvP6dBVJJnRXYTw7K64wovf1ERmM=
-github.com/tinywasm/tui v0.1.1/go.mod h1:24Dm0ZUd363ImXuJxBdLFVmckxWisUI7aC3EVp4WQhs=

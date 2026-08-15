@@ -145,26 +145,7 @@ func (e *Extractor) ExtractModule(moduleDir string) (*Assets, error) {
 		modules = []module{{path: moduleDir, dir: moduleDir}}
 	}
 
-	var target module
-	for _, m := range modules {
-		if m.dir == moduleDir {
-			target = m
-			break
-		}
-	}
-
-	if target.dir == "" {
-		for _, m := range modules {
-			if strings.HasPrefix(moduleDir, m.dir+string(os.PathSeparator)) {
-				target = m
-				break
-			}
-		}
-
-		if target.dir == "" {
-			target = module{path: moduleDir, dir: moduleDir}
-		}
-	}
+	target := resolveOwningModule(moduleDir, modules)
 
 	results, err := e.results(rootDir, e.rootDir, modules)
 	if err != nil {
@@ -184,6 +165,7 @@ func (e *Extractor) ExtractModule(moduleDir string) (*Assets, error) {
 		})
 	}
 
+	rootModule := resolveOwningModule(e.rootDir, modules)
 	a := &Assets{
 		ModuleName:  target.path,
 		RootCSS:     output.Root,
@@ -192,7 +174,7 @@ func (e *Extractor) ExtractModule(moduleDir string) (*Assets, error) {
 		HTML:        output.HTML,
 		Icons:       output.Icons,
 		Fonts:       output.Fonts,
-		IsRoot:      isRootDir(target.dir, e.rootDir),
+		IsRoot:      target.path == rootModule.path,
 		IsFramework: isFrameworkModule(target.path),
 	}
 	return a, nil
@@ -224,6 +206,8 @@ func (e *Extractor) ExtractAll() ([]*Assets, error) {
 		return nil, err
 	}
 
+	rootModule := resolveOwningModule(e.rootDir, modules)
+
 	var all []*Assets
 	for _, m := range modules {
 		output, ok, err := MergeResultsFor(m.path, results)
@@ -246,7 +230,7 @@ func (e *Extractor) ExtractAll() ([]*Assets, error) {
 				HTML:        output.HTML,
 				Icons:       output.Icons,
 				Fonts:       output.Fonts,
-				IsRoot:      isRootDir(m.dir, e.rootDir),
+				IsRoot:      m.path == rootModule.path,
 				IsFramework: isFrameworkModule(m.path),
 			}
 			all = append(all, a)
@@ -276,6 +260,27 @@ func (e *Extractor) discoverModules(rootDir string) ([]module, error) {
 
 func isFrameworkModule(path string) bool {
 	return path == cssModulePath || strings.HasSuffix(path, "/"+cssModulePath)
+}
+
+// resolveOwningModule finds which discovered module a directory belongs to:
+// an exact match first, then the nearest ancestor by path prefix — a site
+// subdirectory with no go.mod of its own (e.g. sites/a/ inside a shared
+// module used to build several similarly-themed sites from one CI/CD
+// pipeline) resolves to that shared module, exactly like `go list -m` does
+// when run from within it. Falls back to a synthetic module{path: dir, dir:
+// dir} so callers never see an empty path.
+func resolveOwningModule(dir string, modules []module) module {
+	for _, m := range modules {
+		if m.dir == dir {
+			return m
+		}
+	}
+	for _, m := range modules {
+		if strings.HasPrefix(dir, m.dir+string(os.PathSeparator)) {
+			return m
+		}
+	}
+	return module{path: dir, dir: dir}
 }
 
 // ValidateProject checks if the given directory contains a valid sitec project.

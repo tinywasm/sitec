@@ -1,7 +1,7 @@
 package sitec
 
 import (
-	"path/filepath"
+	"github.com/tinywasm/fmt"
 )
 
 // Movido desde assetmin/ssr_loader.go — la MITAD de compilacion.
@@ -22,7 +22,7 @@ func (c *AssetMin) routeAssets(a *Assets, isRoot, isFramework bool) error {
 		case isFramework:
 			c.fromCss = &rootCandidate{name: a.ModuleName, css: a.RootCSS}
 		default:
-			c.Logger("warning: module", a.ModuleName, "declares RootCSS() but only the root project or", cssModulePath, "may; ignoring")
+			return fmt.Err("module", a.ModuleName, "declares RootCSS() but is neither the root project nor", cssModulePath, "— rejected instead of silently ignored, since serving it would silently swap in the wrong theme")
 		}
 	}
 
@@ -65,13 +65,4 @@ func (c *AssetMin) resolveAndApplyRootCSS() {
 	c.mainStyleCssHandler.contentOpen = entries
 	c.mainStyleCssHandler.cacheValid = false
 	c.mainStyleCssHandler.mu.Unlock()
-}
-
-func isRootDir(dir, rootDir string) bool {
-	if rootDir == "" {
-		return false
-	}
-	absDir, _ := filepath.Abs(dir)
-	absRoot, _ := filepath.Abs(rootDir)
-	return absDir == absRoot
 }
