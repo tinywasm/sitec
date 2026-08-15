@@ -2,6 +2,7 @@ package sitec
 
 import (
 	"github.com/tinywasm/font"
+	"github.com/tinywasm/html"
 	"github.com/tinywasm/js"
 	"github.com/tinywasm/svg/sprite"
 )
@@ -22,6 +23,7 @@ type Assets struct {
 	HTML        string
 	Icons       *sprite.Sprite
 	Fonts       font.Declaration // family declared by the module; zero value = none
+	Pages       []html.Page
 	IsRoot      bool
 	IsFramework bool
 }

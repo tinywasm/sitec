@@ -5,9 +5,11 @@ go 1.25.2
 require (
 	github.com/tdewolff/minify/v2 v2.24.8
 	github.com/tinywasm/css v0.4.12
+	github.com/tinywasm/dom v0.13.5
 	github.com/tinywasm/fmt v0.25.5
 	github.com/tinywasm/font v0.0.4
 	github.com/tinywasm/html v0.0.17
+	github.com/tinywasm/image v0.0.18
 	github.com/tinywasm/js v0.0.4
 	github.com/tinywasm/modfind v0.0.4
 	github.com/tinywasm/router v0.1.13
@@ -16,11 +18,13 @@ require (
 )
 
 require (
+	github.com/HugoSmits86/nativewebp v1.2.1 // indirect
+	github.com/disintegration/imaging v1.6.2 // indirect
 	github.com/tdewolff/parse/v2 v2.8.5 // indirect
 	github.com/tinywasm/color v0.1.1 // indirect
 	github.com/tinywasm/context v0.0.18 // indirect
-	github.com/tinywasm/dom v0.13.5 // indirect
 	github.com/tinywasm/fetch v0.1.24 // indirect
 	github.com/tinywasm/json v0.5.17 // indirect
 	github.com/tinywasm/model v0.1.4 // indirect
+	golang.org/x/image v0.24.0 // indirect
 )

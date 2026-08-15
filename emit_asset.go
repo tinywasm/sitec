@@ -2,6 +2,7 @@ package sitec
 
 import (
 	"bytes"
+	"errors"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -202,6 +203,11 @@ func (h *asset) RegenerateCache(minifier *minify.M) error {
 
 	minified, err := minifier.Bytes(h.mediatype, buf.Bytes())
 	if err != nil {
+		if errors.Is(err, minify.ErrNotExist) {
+			h.cachedMinified = buf.Bytes()
+			h.cacheValid = true
+			return nil
+		}
 		return err
 	}
 
@@ -248,6 +254,11 @@ func (h *asset) GetMinifiedContent(minifier *minify.M) ([]byte, error) {
 
 	minified, err := minifier.Bytes(h.mediatype, buf.Bytes())
 	if err != nil {
+		if errors.Is(err, minify.ErrNotExist) {
+			h.cachedMinified = buf.Bytes()
+			h.cacheValid = true
+			return h.cachedMinified, nil
+		}
 		return nil, err
 	}
 
