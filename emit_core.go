@@ -128,18 +128,33 @@ func (c *AssetMin) LoadSSRModules() {
 			c.writeMessage("SSR extract error:", err)
 			return
 		}
-		c.mu.Lock()
-		for _, a := range all {
-			if a == nil {
-				continue
-			}
-			if err := c.routeAssets(a, a.IsRoot, a.IsFramework); err != nil {
-				c.writeMessage("route assets error:", err)
-			}
+		if err := c.RouteExtractedAssets(all); err != nil {
+			c.writeMessage("route assets error:", err)
 		}
-		c.resolveAndApplyRootCSS()
-		c.mu.Unlock()
 	}()
+}
+
+// RouteExtractedAssets applies a batch of already-extracted module assets —
+// deciding which module's RootCSS wins, appending every module's RenderCSS to
+// its slot, and copying declared fonts — then resolves the final root
+// stylesheet. It is the routing half of LoadSSRModules, exported so a caller
+// that needs its own retry/backoff policy around ExtractAll (app's
+// AssetsHandler does) can still reach routing: routeAssets and
+// resolveAndApplyRootCSS are unexported, and Go does not promote them through
+// embedding across package boundaries.
+func (c *AssetMin) RouteExtractedAssets(all []*Assets) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, a := range all {
+		if a == nil {
+			continue
+		}
+		if err := c.routeAssets(a, a.IsRoot, a.IsFramework); err != nil {
+			return err
+		}
+	}
+	c.resolveAndApplyRootCSS()
+	return nil
 }
 
 func (c *AssetMin) ReloadSSRModule(moduleDir string) error {
