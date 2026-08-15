@@ -59,6 +59,22 @@ func (c *AssetMin) SetFS(fs FS) {
 	c.fs = fs
 }
 
+// SetMinifyEnabled toggles minification on or off. The consumer (app's TUI
+// minify toggle) owns the UI; this is the only way to reach the flag, which
+// was private before — activeMinifier() is the sole reader.
+func (c *AssetMin) SetMinifyEnabled(enabled bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.minifyEnabled = enabled
+}
+
+// MinifyEnabled reports whether minification is currently on.
+func (c *AssetMin) MinifyEnabled() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.minifyEnabled
+}
+
 func (c *AssetMin) SetWasm(filename string, runtime string) {
 	c.wasmMu.Lock()
 	defer  c.wasmMu.Unlock()
