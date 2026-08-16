@@ -8,6 +8,7 @@ import (
 
 	"github.com/tinywasm/fmt"
 	"github.com/tinywasm/font"
+	"github.com/tinywasm/html"
 	"github.com/tinywasm/svg/sprite"
 )
 
@@ -19,6 +20,7 @@ type CollectorOutput struct {
 	Scripts []ScriptOutput   `json:"scripts"`
 	Icons   *sprite.Sprite   `json:"icons"`
 	Fonts   font.Declaration `json:"fonts"`
+	Pages   []html.Page      `json:"pages"`
 }
 
 // fontsWire is the JSON shape for a Declaration (unexported fields cannot marshal).
@@ -46,6 +48,7 @@ type receiverFeature struct {
 	HasJS     bool
 	HasIcons  bool
 	HasFonts  bool
+	HasPages  bool
 }
 
 type moduleAlias struct {
@@ -86,6 +89,7 @@ func invokeSSRExtractorOnce(projectRoot string, startDir string, modules []modul
 		Scripts []ScriptOutput    `json:"scripts"`
 		Icons   []json.RawMessage `json:"icons"`
 		Fonts   fontsWire         `json:"fonts"`
+		Pages   []html.Page       `json:"pages"`
 	}
 
 	// Parse the JSON output
@@ -123,6 +127,7 @@ func invokeSSRExtractorOnce(projectRoot string, startDir string, modules []modul
 			Scripts: raw.Scripts,
 			Icons:   mergedSprite,
 			Fonts:   fonts,
+			Pages:   raw.Pages,
 		}
 	}
 
@@ -137,6 +142,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	{{if .HasAnyPages}}
+	"github.com/tinywasm/html"
+	{{end}}
 	{{range .Modules}}
 	{{if .HasAnyFeature}}{{.Alias}} "{{.Path}}"{{end}}
 	{{end}}
@@ -153,12 +161,13 @@ type fontsWire struct {
 }
 
 type ssr struct {
-	Root    string    ` + "`json:\"root\"`" + `
-	Render  string    ` + "`json:\"render\"`" + `
-	HTML    string    ` + "`json:\"html\"`" + `
-	Scripts []script  ` + "`json:\"scripts\"`" + `
-	Icons   []any     ` + "`json:\"icons\"`" + `
-	Fonts   fontsWire ` + "`json:\"fonts\"`" + `
+	Root    string      ` + "`json:\"root\"`" + `
+	Render  string      ` + "`json:\"render\"`" + `
+	HTML    string      ` + "`json:\"html\"`" + `
+	Scripts []script    ` + "`json:\"scripts\"`" + `
+	Icons   []any       ` + "`json:\"icons\"`" + `
+	Fonts   fontsWire   ` + "`json:\"fonts\"`" + `
+	{{if .HasAnyPages}}Pages []html.Page ` + "`json:\"pages\"`" + `{{end}}
 }
 
 type failure struct {
@@ -201,6 +210,7 @@ func main() {
 				s.Fonts = fontsWire{Family: string(d.Family()), Dir: d.Dir()}
 			}
 			{{end}}
+			{{if .HasPages}}s.Pages = append(s.Pages, inst.RenderPages()...){{end}}
 			{{else}}
 			{{if .HasRoot}}s.Root += {{$alias}}.RootCSS().String(){{end}}
 			{{if .HasRender}}s.Render += {{$alias}}.RenderCSS().String(){{end}}
@@ -217,6 +227,7 @@ func main() {
 				s.Fonts = fontsWire{Family: string(d.Family()), Dir: d.Dir()}
 			}
 			{{end}}
+			{{if .HasPages}}s.Pages = append(s.Pages, {{$alias}}.RenderPages()...){{end}}
 			{{end}}
 		}()
 		{{end}}
@@ -241,10 +252,22 @@ func main() {
 		return err
 	}
 
+	hasAnyPages := false
+	for _, m := range aliases {
+		for _, r := range m.Receivers {
+			if r.HasPages {
+				hasAnyPages = true
+				break
+			}
+		}
+	}
+
 	data := struct {
-		Modules []moduleAlias
+		Modules     []moduleAlias
+		HasAnyPages bool
 	}{
-		Modules: aliases,
+		Modules:     aliases,
+		HasAnyPages: hasAnyPages,
 	}
 
 	f, err := os.Create(outputFile)

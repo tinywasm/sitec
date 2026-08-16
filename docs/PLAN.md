@@ -2,9 +2,8 @@
 PLAN: "feat!: sitec emite sitios multipágina y procesa imágenes en build"
 EXECUTOR: jules
 REVIEWER: none
-STATUS: review
+STATUS: running
 SESSION: 1368287204199820857
-PR: https://github.com/tinywasm/sitec/pull/15
 ---
 
 > Este plan se despacha con el flujo CodeJob. Ver skill: agents-workflow.

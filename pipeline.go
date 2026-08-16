@@ -183,6 +183,7 @@ func (e *Extractor) ExtractModule(moduleDir string) (*Assets, error) {
 		HTML:        output.HTML,
 		Icons:       output.Icons,
 		Fonts:       output.Fonts,
+		Pages:       output.Pages,
 		IsRoot:      target.path == rootModule.path,
 		IsFramework: isFrameworkModule(target.path),
 	}
@@ -239,6 +240,7 @@ func (e *Extractor) ExtractAll() ([]*Assets, error) {
 				HTML:        output.HTML,
 				Icons:       output.Icons,
 				Fonts:       output.Fonts,
+				Pages:       output.Pages,
 				IsRoot:      m.path == rootModule.path,
 				IsFramework: isFrameworkModule(m.path),
 			}
