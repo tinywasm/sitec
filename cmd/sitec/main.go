@@ -5,7 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
+	"github.com/tinywasm/image/min"
 	"github.com/tinywasm/sitec"
 )
 
@@ -96,6 +98,15 @@ func runBuild(args []string) {
 	am.SetSSRExtractor(e)
 	am.SetFS(sitec.NewOsFS())
 
+	imgHandler := min.New(&min.Config{
+		RootDir:   ".",
+		OutputDir: filepath.Join(*outputDir, "img"),
+		Quality:   82,
+	})
+	imgHandler.SetLog(func(msg ...any) { fmt.Fprintln(os.Stderr, msg...) })
+	imgHandler.SetFinder(e.Finder())
+	am.SetImageProcessor(imgHandler)
+
 	if e.WasmBuilder() != nil {
 		wasmOut, err := e.WasmBuilder().Build(".")
 		if err != nil {
@@ -111,6 +122,11 @@ func runBuild(args []string) {
 
 	if err := am.RouteExtractedAssets(all); err != nil {
 		fmt.Fprintf(os.Stderr, "Error ruteando assets: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := imgHandler.LoadImages(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error procesando imágenes: %v\n", err)
 		os.Exit(1)
 	}
 

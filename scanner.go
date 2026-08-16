@@ -91,12 +91,13 @@ func (s *scanner) scanFile(path string) (fileFeatures, error) {
 
 	var producers []producerDecl
 	producerNames := map[string]bool{
-		"RootCSS":    true,
-		"RenderCSS":  true,
-		"RenderHTML": true,
-		"RenderJS":   true,
-		"IconSvg":    true,
-		"Fonts":      true,
+		"RootCSS":     true,
+		"RenderCSS":   true,
+		"RenderHTML":  true,
+		"RenderJS":    true,
+		"IconSvg":     true,
+		"Fonts":       true,
+		"RenderPages": true,
 	}
 
 	for _, decl := range f.Decls {

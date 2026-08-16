@@ -55,6 +55,7 @@ func MergeResultsFor(modulePath string, results map[string]CollectorOutput) (Col
 		merged.Render += out.Render
 		merged.HTML += out.HTML
 		merged.Scripts = append(merged.Scripts, out.Scripts...)
+		merged.Pages = append(merged.Pages, out.Pages...)
 		if out.Icons != nil {
 			merged.Icons.Merge(out.Icons)
 		}

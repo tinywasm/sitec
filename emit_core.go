@@ -13,6 +13,7 @@ import (
 	"github.com/tdewolff/minify/v2/html"
 	"github.com/tdewolff/minify/v2/js"
 	minifySvg "github.com/tdewolff/minify/v2/svg"
+	"github.com/tdewolff/minify/v2/xml"
 	twcss "github.com/tinywasm/css"
 	"github.com/tinywasm/fmt"
 	"github.com/tinywasm/font"
@@ -145,6 +146,40 @@ func (c *AssetMin) LoadSSRModules() {
 func (c *AssetMin) RouteExtractedAssets(all []*Assets) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// 1. Check page collisions across modules
+	var htmlModule string
+	pageOwners := make(map[string]string)
+
+	for _, a := range all {
+		if a == nil {
+			continue
+		}
+		if a.HTML != "" {
+			htmlModule = a.ModuleName
+		}
+		for _, p := range a.Pages {
+			outPath, _ := normalizePagePath(p.Path)
+			if existingOwner, exists := pageOwners[outPath]; exists {
+				if existingOwner == a.ModuleName {
+					return fmt.Err("ssr: page collision in module", a.ModuleName, ": multiple pages with path", p.Path)
+				}
+				return fmt.Err("ssr: page collision at", p.Path, ": declared by module", existingOwner, "and module", a.ModuleName)
+			}
+			pageOwners[outPath] = a.ModuleName
+		}
+	}
+
+	if htmlModule != "" {
+		if indexOwner, exists := pageOwners["index.html"]; exists {
+			if htmlModule == indexOwner {
+				return fmt.Err("ssr: page collision at /: module", htmlModule, "declares both RenderHTML and RenderPages with Path \"/\"")
+			}
+			return fmt.Err("ssr: page collision at /: RenderHTML in module", htmlModule, "conflicts with RenderPages in module", indexOwner)
+		}
+	}
+
+	// 2. Route standard assets and pages
 	for _, a := range all {
 		if a == nil {
 			continue
@@ -154,6 +189,12 @@ func (c *AssetMin) RouteExtractedAssets(all []*Assets) error {
 		}
 	}
 	c.resolveAndApplyRootCSS()
+
+	// 3. Emit sitemap.xml if SiteURL is set
+	if c.SiteURL != "" {
+		c.emitSitemapNoLock()
+	}
+
 	return nil
 }
 
@@ -213,8 +254,9 @@ type Config struct {
 	OutputDir       string // eg: web/static, web/public, web/assets
 	RootDir         string // Root directory of the project where go.mod exists
 	AppName         string // Application name for templates (default: "MyApp")
-	AssetsURLPrefix    string                 // New: for HTTP routes
-	DevMode            bool                   // If true, disables caching (default: false)
+	AssetsURLPrefix string // New: for HTTP routes
+	DevMode         bool   // If true, disables caching (default: false)
+	SiteURL         string // Optional: canonical base URL (e.g. "https://example.com"), used for sitemap.xml and canonical URL resolution
 }
 
 func NewAssetMin(ac *Config) *AssetMin {
@@ -263,6 +305,8 @@ func NewAssetMin(ac *Config) *AssetMin {
 	c.min.AddFunc("text/css", css.Minify)
 	c.min.AddFuncRegexp(regexp.MustCompile("^(application|text)/(x-)?(java|ecma)script$"), js.Minify)
 	c.min.AddFunc("image/svg+xml", minifySvg.Minify)
+	c.min.AddFunc("application/xml", xml.Minify)
+	c.min.AddFunc("text/xml", xml.Minify)
 
 	c.mainJsHandler.initCode = c.startCodeJS
 

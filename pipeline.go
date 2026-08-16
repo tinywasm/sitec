@@ -54,6 +54,15 @@ func (e *Extractor) SetGraphLister(l GraphLister)    { e.lister = l }
 func (e *Extractor) SetToolchain(t Toolchain)        { e.toolchain = t }
 func (e *Extractor) SetWasmBuilder(wb WasmBuilder)    { e.wasmBuilder = wb }
 
+func (e *Extractor) Finder() *modfind.Finder {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.finder == nil {
+		e.finder = modfind.New()
+	}
+	return e.finder
+}
+
 func (e *Extractor) WasmBuilder() WasmBuilder {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -174,6 +183,7 @@ func (e *Extractor) ExtractModule(moduleDir string) (*Assets, error) {
 		HTML:        output.HTML,
 		Icons:       output.Icons,
 		Fonts:       output.Fonts,
+		Pages:       output.Pages,
 		IsRoot:      target.path == rootModule.path,
 		IsFramework: isFrameworkModule(target.path),
 	}
@@ -230,6 +240,7 @@ func (e *Extractor) ExtractAll() ([]*Assets, error) {
 				HTML:        output.HTML,
 				Icons:       output.Icons,
 				Fonts:       output.Fonts,
+				Pages:       output.Pages,
 				IsRoot:      m.path == rootModule.path,
 				IsFramework: isFrameworkModule(m.path),
 			}
