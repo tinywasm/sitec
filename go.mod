@@ -4,7 +4,7 @@ go 1.25.2
 
 require (
 	github.com/tdewolff/minify/v2 v2.24.8
-	github.com/tinywasm/css v0.4.12
+	github.com/tinywasm/css v0.4.15
 	github.com/tinywasm/dom v0.13.5
 	github.com/tinywasm/fmt v0.25.5
 	github.com/tinywasm/font v0.0.4
@@ -13,7 +13,7 @@ require (
 	github.com/tinywasm/js v0.0.4
 	github.com/tinywasm/modfind v0.0.4
 	github.com/tinywasm/router v0.1.13
-	github.com/tinywasm/svg v0.1.8
+	github.com/tinywasm/svg v0.1.21
 	github.com/tinywasm/tinygo v0.0.11
 )
 
