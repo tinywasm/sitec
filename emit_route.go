@@ -65,7 +65,16 @@ func (c *AssetMin) routeAssets(a *Assets, isRoot, isFramework bool) error {
 	// RootCSS deliberately NOT passed here — it has its own slot resolution above.
 	c.updateSSRModuleInSlot(a.ModuleName, a.CSS, a.JS, a.HTML, a.Icons, slot)
 
-	// Emit Pages
+	return nil
+}
+
+// emitPages renders a module's pages. It is separate from routeAssets because
+// a page bakes the icon sprite into its body, and the sprite is only complete
+// once EVERY module has registered its glyphs. Emitting pages inside
+// routeAssets meant the page owner — the root project, which sorts first —
+// was rendered before a single dependency had contributed, so the sprite went
+// out empty and every <use href="#…"> in the markup resolved to nothing.
+func (c *AssetMin) emitPages(a *Assets) error {
 	for _, p := range a.Pages {
 		outPath, urlPath := normalizePagePath(p.Path)
 		doc := p.Doc

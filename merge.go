@@ -57,7 +57,13 @@ func MergeResultsFor(modulePath string, results map[string]CollectorOutput) (Col
 		merged.Scripts = append(merged.Scripts, out.Scripts...)
 		merged.Pages = append(merged.Pages, out.Pages...)
 		if out.Icons != nil {
-			merged.Icons.Merge(out.Icons)
+			// Merge does not mutate the receiver — it returns a fresh sprite,
+			// deliberately, so a cached per-package sprite can never be
+			// aliased and corrupted. Dropping the result silently threw away
+			// every icon in the ecosystem: the sprite shipped empty and each
+			// <use href="#…"> in the markup pointed at a symbol that was
+			// never emitted.
+			merged.Icons = merged.Icons.Merge(out.Icons)
 		}
 		if out.Fonts.Family() != "" {
 			if fontsFrom != "" {

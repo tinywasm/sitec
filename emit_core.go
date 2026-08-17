@@ -179,7 +179,7 @@ func (c *AssetMin) RouteExtractedAssets(all []*Assets) error {
 		}
 	}
 
-	// 2. Route standard assets and pages
+	// 2. Route standard assets — every module, before any page is rendered.
 	for _, a := range all {
 		if a == nil {
 			continue
@@ -190,7 +190,17 @@ func (c *AssetMin) RouteExtractedAssets(all []*Assets) error {
 	}
 	c.resolveAndApplyRootCSS()
 
-	// 3. Emit sitemap.xml if SiteURL is set
+	// 3. Render pages, now that the icon sprite holds every module's glyphs.
+	for _, a := range all {
+		if a == nil {
+			continue
+		}
+		if err := c.emitPages(a); err != nil {
+			return err
+		}
+	}
+
+	// 4. Emit sitemap.xml if SiteURL is set
 	if c.SiteURL != "" {
 		c.emitSitemapNoLock()
 	}
@@ -228,6 +238,10 @@ func (c *AssetMin) ReloadSSRModule(moduleDir string) error {
 	err = c.routeAssets(a, a.IsRoot, a.IsFramework)
 	if err == nil {
 		c.resolveAndApplyRootCSS()
+		// Same order as the full pass: assets first, then pages. Here the
+		// other modules' glyphs are already registered from the initial load,
+		// so re-rendering this module's pages picks up the complete sprite.
+		err = c.emitPages(a)
 	}
 	c.mu.Unlock()
 	return err
