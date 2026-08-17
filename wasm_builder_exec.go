@@ -10,19 +10,55 @@ import (
 	"github.com/tinywasm/tinygo"
 )
 
-type defaultWasmBuilder struct {
-	stdlib bool // if true, use standard Go compiler instead of TinyGo
+// WasmBuildOptions selects what to compile and what to call the result.
+//
+// The zero value builds a site frontend: web/client.go → client.wasm. Set the
+// fields to compile something else — an edge worker entry point, for example,
+// which is main.go and must come out named for the platform that serves it.
+type WasmBuildOptions struct {
+	// Entry is the input file, relative to the directory passed to Build.
+	// Empty means "web/client.go".
+	Entry string
+	// OutputName is the artifact name without the .wasm extension.
+	// Empty means "client".
+	OutputName string
 }
 
+func (o WasmBuildOptions) entry() string {
+	if o.Entry == "" {
+		return filepath.Join("web", "client.go")
+	}
+	return o.Entry
+}
+
+func (o WasmBuildOptions) filename() string {
+	if o.OutputName == "" {
+		return "client.wasm"
+	}
+	return o.OutputName + ".wasm"
+}
+
+type defaultWasmBuilder struct {
+	stdlib bool // if true, use standard Go compiler instead of TinyGo
+	opts   WasmBuildOptions
+}
+
+// NewDefaultWasmBuilder builds a site frontend from web/client.go.
 func NewDefaultWasmBuilder(stdlib bool) WasmBuilder {
 	return &defaultWasmBuilder{stdlib: stdlib}
 }
 
+// NewWasmBuilder builds an arbitrary entry point, for callers that are not
+// compiling a site frontend.
+func NewWasmBuilder(stdlib bool, opts WasmBuildOptions) WasmBuilder {
+	return &defaultWasmBuilder{stdlib: stdlib, opts: opts}
+}
+
 func (w *defaultWasmBuilder) Build(dir string) (WasmOutput, error) {
-	// Paso 2: verificar web/client.go
-	clientPath := filepath.Join(dir, "web", "client.go")
+	entry := w.opts.entry()
+	clientPath := filepath.Join(dir, entry)
 	if _, err := os.Stat(clientPath); err != nil {
-		return WasmOutput{}, fmt.Err("input file not found: web/client.go must exist")
+		return WasmOutput{}, fmt.Err("input file not found: ", entry, " must exist")
 	}
 
 	env := os.Environ()
@@ -40,7 +76,7 @@ func (w *defaultWasmBuilder) Build(dir string) (WasmOutput, error) {
 	}
 
 	// Output filename
-	wasmFilename := "client.wasm"
+	wasmFilename := w.opts.filename()
 
 	// Create temp output path for compilation
 	tmpOutDir, err := os.MkdirTemp("", "sitec_wasm_*")
@@ -53,7 +89,11 @@ func (w *defaultWasmBuilder) Build(dir string) (WasmOutput, error) {
 	// Paso 5: compile
 	var cmd *exec.Cmd
 	if !w.stdlib {
-		cmd = exec.Command("tinygo", "build", "-target", "wasm", "-o", tmpOutPath, clientPath)
+		// -no-debug: a shipped web binary is never a source-level debug
+		// target — DWARF info alone is the difference between ~99 KiB and
+		// ~456 KiB for a minimal client, which is most of a size budget spent
+		// on symbols nobody attaches a debugger to.
+		cmd = exec.Command("tinygo", "build", "-target", "wasm", "-no-debug", "-o", tmpOutPath, clientPath)
 	} else {
 		cmd = exec.Command("go", "build", "-o", tmpOutPath, clientPath)
 	}

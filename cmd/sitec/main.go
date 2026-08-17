@@ -64,19 +64,29 @@ func runBuild(args []string) {
 	outputDir := fsSet.String("o", "web/public", "Directorio de salida")
 	_ = fsSet.Parse(args)
 
+	// Resolved once, absolute: IsRoot compares module PATHS against the
+	// module list from `go list -m`, which is always absolute. A literal "."
+	// never matches, so ownership resolution silently falls back to a
+	// synthetic module and RootCSS from the real root gets dropped.
+	root, err := filepath.Abs(".")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error resolviendo el directorio: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Validate project
-	if err := sitec.ValidateProject("."); err != nil {
+	if err := sitec.ValidateProject(root); err != nil {
 		fmt.Fprintf(os.Stderr, "Error de validación del proyecto: %v\n", err)
 		os.Exit(1)
 	}
 
-	e := sitec.New(".")
+	e := sitec.New(root)
 	e.SetLog(func(msg ...any) {
 		fmt.Fprintln(os.Stderr, msg...)
 	})
 
 	// Check if web/client.go exists to decide if we compile WASM
-	if _, err := os.Stat("web/client.go"); err == nil {
+	if _, err := os.Stat(filepath.Join(root, "web", "client.go")); err == nil {
 		e.SetWasmBuilder(sitec.NewDefaultWasmBuilder(false))
 	}
 
@@ -89,7 +99,7 @@ func runBuild(args []string) {
 	// Setup AssetMin with osFS
 	am := sitec.NewAssetMin(&sitec.Config{
 		OutputDir: *outputDir,
-		RootDir:   ".",
+		RootDir:   root,
 	})
 	am.SetLog(func(msg ...any) {
 		fmt.Fprintln(os.Stderr, msg...)
@@ -99,7 +109,7 @@ func runBuild(args []string) {
 	am.SetFS(sitec.NewOsFS())
 
 	imgHandler := min.New(&min.Config{
-		RootDir:   ".",
+		RootDir:   root,
 		OutputDir: filepath.Join(*outputDir, "img"),
 		Quality:   82,
 	})
@@ -108,7 +118,7 @@ func runBuild(args []string) {
 	am.SetImageProcessor(imgHandler)
 
 	if e.WasmBuilder() != nil {
-		wasmOut, err := e.WasmBuilder().Build(".")
+		wasmOut, err := e.WasmBuilder().Build(root)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error building WASM: %v\n", err)
 			os.Exit(1)
@@ -161,13 +171,19 @@ func runBuild(args []string) {
 }
 
 func runCheck(args []string) {
+	root, err := filepath.Abs(".")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error resolviendo el directorio: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Validate project
-	if err := sitec.ValidateProject("."); err != nil {
+	if err := sitec.ValidateProject(root); err != nil {
 		fmt.Fprintf(os.Stderr, "Error de validación del proyecto: %v\n", err)
 		os.Exit(1)
 	}
 
-	e := sitec.New(".")
+	e := sitec.New(root)
 	e.SetLog(func(msg ...any) {
 		fmt.Fprintln(os.Stderr, msg...)
 	})

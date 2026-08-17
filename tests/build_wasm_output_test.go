@@ -100,3 +100,45 @@ func TestWasmbuild_WritesScriptJSFromJSPackage_TinyGo(t *testing.T) {
 		t.Error("Runtime does not contain TinyGo signatures")
 	}
 }
+
+// TestWasmBuild_CustomEntryAndOutputName covers the non-frontend case: an edge
+// worker compiles main.go and must come out named for the platform that serves
+// it, not "client.wasm". Without this, a caller like tinywasm/goflare cannot
+// use this builder at all and has to keep its own copy of the compile step.
+func TestWasmBuild_CustomEntryAndOutputName(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "main.go"),
+		[]byte("package main\nfunc main() {}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	wb := sitec.NewWasmBuilder(true, sitec.WasmBuildOptions{
+		Entry:      "main.go",
+		OutputName: "edge",
+	})
+	out, err := wb.Build(tmpDir)
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+	if out.Filename != "edge.wasm" {
+		t.Errorf("Filename = %q, want %q", out.Filename, "edge.wasm")
+	}
+	if len(out.Binary) == 0 {
+		t.Error("Binary is empty")
+	}
+	if out.Runtime == "" {
+		t.Error("Runtime is empty")
+	}
+}
+
+// TestWasmBuild_DefaultsUnchanged pins the zero-value behaviour, so adding the
+// options above cannot silently move the frontend path.
+func TestWasmBuild_DefaultsUnchanged(t *testing.T) {
+	tmpDir := t.TempDir()
+	wb := sitec.NewWasmBuilder(true, sitec.WasmBuildOptions{})
+	_, err := wb.Build(tmpDir)
+	if err == nil || !strings.Contains(err.Error(), "web/client.go") {
+		t.Errorf("zero options should still look for web/client.go, got: %v", err)
+	}
+}
