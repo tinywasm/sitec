@@ -1,6 +1,8 @@
 ---
 PLAN: "feat!: sitec.Build — un solo ensamblador y una salida que no puede ser parcial"
 TAG: v0.1.0
+STATUS: running
+SESSION: 13511480685825302276
 ---
 
 > Este plan se despacha con el flujo CodeJob. Ver skill: agents-workflow.
