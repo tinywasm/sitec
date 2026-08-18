@@ -112,11 +112,11 @@ func expandToSSRPackages(modules []module, scanner *scanner, assetLibraries []st
 func modulesToAliases(modules []module, scanner *scanner, assetLibraries []string, rootDir string, lister GraphLister, log func(...any)) ([]moduleAlias, error) {
 	reach := computeReachability(rootDir, lister)
 
-	var skippedCount int
+	var skipped []string
 	var aliases []moduleAlias
 	for _, m := range expandToSSRPackages(modules, scanner, assetLibraries) {
 		if reach.known && !reach.set[m.path] {
-			skippedCount++
+			skipped = append(skipped, m.path)
 			continue
 		}
 
@@ -203,8 +203,10 @@ func modulesToAliases(modules []module, scanner *scanner, assetLibraries []strin
 		aliases = append(aliases, ma)
 	}
 
-	if skippedCount > 0 && log != nil {
-		log(fmt.Sprintf(skippedUnreachableFmt, skippedCount))
+	if log != nil {
+		for _, path := range skipped {
+			log(fmt.Sprintf(skippedUnreachableFmt, path))
+		}
 	}
 
 	return aliases, nil

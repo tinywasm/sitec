@@ -4,7 +4,12 @@ import (
 	"strings"
 )
 
-const skippedUnreachableFmt = "sitec: %d paquete(s) fuera del grafo de compilación fueron omitidos"
+// skippedUnreachableFmt nombra cada paquete omitido y dice la consecuencia. Un
+// contador no sirve: a este punto solo llegan paquetes que YA declaran assets,
+// así que "omitido" significa que sus estilos e iconos no saldrán en el sitio
+// — el fallo silencioso que hay que poder diagnosticar de una lectura.
+const skippedUnreachableFmt = "sitec: omitido %s — declara assets pero no está en el grafo de compilación de ./...; " +
+	"sus estilos e iconos NO saldrán en el sitio"
 
 // reachSet es el conjunto de rutas de importación en el grafo de compilación
 // del directorio de arranque, en todas las configuraciones para las que se

@@ -164,68 +164,29 @@ func (t *Table[T]) RenderCSS() stylesheet { return ".table{color:purple}" }
 	}
 }
 
-// TestEmptyAssetLibrariesIsLogged: an extraction with no configured libraries emits the warning through SetLog; with a list configured it does not
-func TestEmptyAssetLibrariesIsLogged(t *testing.T) {
+// TestProducerCheckIsOnByDefault fija el default. Ningún llamador del CLI
+// invoca SetAssetLibraries, así que con la comprobación apagada un paquete que
+// importa la librería de estilos y olvida RenderCSS() no aportaba ni una regla
+// y la build pasaba en verde. Antes esto se "avisaba" con un log que salía en
+// el 100% de las builds; ahora es un error.
+func TestProducerCheckIsOnByDefault(t *testing.T) {
 	root := setupBaseApp(t)
-	writeAppFile(t, root, "components/css.go", `package components
-`+stylesheetHelper+`
-type Alpha struct{}
-func (a *Alpha) RenderCSS() stylesheet { return ".alpha{color:red}" }
+	// El archivo NO se llama css.go a propósito: así se ejercita la ruta de
+	// AssetLibraries y no la comprobación previa específica de css.go.
+	writeAppFile(t, root, "widget/widget.go", `package widget
+
+import _ "github.com/tinywasm/css"
+
+type Widget struct{}
 `)
 
-	// 1. Empty AssetLibraries: warning should be logged
-	var logs []string
-	e1 := seedExtractor(root)
-	e1.SetLog(func(args ...any) {
-		var parts []string
-		for _, arg := range args {
-			if s, ok := arg.(string); ok {
-				parts = append(parts, s)
-			}
-		}
-		logs = append(logs, strings.Join(parts, " "))
-	})
-
-	_, err := e1.ExtractModule(root)
-	if err != nil {
-		t.Fatal(err)
+	e := seedExtractor(root) // sin SetAssetLibraries: rige el default
+	_, err := e.ExtractModule(root)
+	if err == nil {
+		t.Fatal("un paquete que importa la librería de estilos sin declarar productor debe fallar la build; pasó en silencio")
 	}
-
-	warningMsg := "ssr: no asset libraries configured; packages that import a styling library and declare no producer will NOT fail the build (see SetAssetLibraries)"
-	found := false
-	for _, l := range logs {
-		if strings.Contains(l, warningMsg) {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("expected warning %q in logs, got: %v", warningMsg, logs)
-	}
-
-	// 2. Non-empty AssetLibraries: warning should NOT be logged
-	logs = nil
-	e2 := seedExtractor(root)
-	e2.SetAssetLibraries([]string{"github.com/tinywasm/widget/style"})
-	e2.SetLog(func(args ...any) {
-		var parts []string
-		for _, arg := range args {
-			if s, ok := arg.(string); ok {
-				parts = append(parts, s)
-			}
-		}
-		logs = append(logs, strings.Join(parts, " "))
-	})
-
-	_, err = e2.ExtractModule(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	for _, l := range logs {
-		if strings.Contains(l, warningMsg) {
-			t.Fatalf("did not expect warning %q when AssetLibraries is set, but got in logs: %v", warningMsg, logs)
-		}
+	if !strings.Contains(err.Error(), "declares no producer") {
+		t.Fatalf("se esperaba el error de productor ausente, se obtuvo: %v", err)
 	}
 }
 

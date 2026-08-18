@@ -195,32 +195,11 @@ func (a *App) RenderCSS() stylesheet { return thisSymbolDoesNotExist }
 	}
 }
 
-// TestExtractAll_NoAssetLibrariesWarnedOnce: the warning fires on every ExtractAll /
-// ExtractModule call, i.e. on every file save in the watcher. No production caller
-// ever calls SetAssetLibraries, so this is unconditional noise on every keystroke.
-func TestExtractAll_NoAssetLibrariesWarnedOnce(t *testing.T) {
-	appDir, _, finder := setupUnreachablePackageProject(t)
-
-	var warnings int
-	e := sitec.New(appDir)
-	e.SetLog(func(a ...any) {
-		for _, v := range a {
-			if strings.Contains(sprint(v), "no asset libraries configured") {
-				warnings++
-			}
-		}
-	})
-	e.SetFinder(finder)
-
-	for i := 0; i < 3; i++ {
-		_, _ = e.ExtractAll()
-	}
-
-	if warnings > 1 {
-		t.Errorf("the 'no asset libraries configured' warning was logged %d times across 3 extractions; "+
-			"it must be emitted at most once per extractor", warnings)
-	}
-}
+// El aviso "no asset libraries configured" ya no existe: salía en el 100% de
+// las builds porque ningún llamador de producción configuraba la lista, y un
+// aviso incondicional no informa de nada. La comprobación va encendida por
+// defecto desde New(), así que no queda nada que avisar — ver
+// TestProducerCheckIsOnByDefault.
 
 func sprint(v any) string {
 	if s, ok := v.(string); ok {

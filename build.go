@@ -82,7 +82,11 @@ func Build(cfg BuildConfig) (*Site, error) {
 	if cfg.Log != nil {
 		e.SetLog(cfg.Log)
 	}
-	e.SetAssetLibraries(cfg.AssetLibraries)
+	// Solo se sobrescribe si el llamador declaró su propia lista: pasar nil no
+	// debe apagar la comprobación que New() deja encendida.
+	if len(cfg.AssetLibraries) > 0 {
+		e.SetAssetLibraries(cfg.AssetLibraries)
+	}
 
 	if _, err := os.Stat(filepath.Join(root, "web", "client.go")); err == nil {
 		e.SetWasmBuilder(NewDefaultWasmBuilder(cfg.Mode == ModeDev))

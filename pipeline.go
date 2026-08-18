@@ -11,10 +11,8 @@ import (
 )
 
 const (
-	cssModulePath           = "tinywasm/css"
-	noAssetLibrariesWarning = "ssr: no asset libraries configured; packages that import a styling library " +
-		"and declare no producer will NOT fail the build (see SetAssetLibraries)"
-	errNoAssetsExtracted    = "sitec: ningún módulo produjo assets; la hoja de estilos saldría vacía"
+	cssModulePath        = "tinywasm/css"
+	errNoAssetsExtracted = "sitec: ningún módulo produjo assets; la hoja de estilos saldría vacía"
 )
 
 type module struct {
@@ -30,7 +28,6 @@ type Extractor struct {
 	scanner        *scanner
 	AssetLibraries []string
 	lister         GraphLister
-	warnOnce       *sync.Once
 	toolchain      Toolchain
 	wasmBuilder    WasmBuilder
 	mu             sync.Mutex
@@ -40,10 +37,12 @@ func New(rootDir string) *Extractor {
 	return &Extractor{
 		rootDir:        rootDir,
 		log:            func(...any) {},
-		cache:          newSSRCache(),
-		scanner:        newScanner(),
-		AssetLibraries: []string{},
-		warnOnce:       &sync.Once{},
+		cache:   newSSRCache(),
+		scanner: newScanner(),
+		// La comprobación de productores va ENCENDIDA por defecto. Un paquete
+		// que importa la librería de estilos y no declara RenderCSS() no aporta
+		// ni una regla: apagarla convierte ese olvido en un fallo silencioso.
+		AssetLibraries: []string{cssModulePath},
 		toolchain:      NewExecToolchain(),
 	}
 }
@@ -73,7 +72,6 @@ func (e *Extractor) SetAssetLibraries(libs []string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.AssetLibraries = libs
-	e.warnOnce = &sync.Once{}
 }
 
 func (e *Extractor) defaultLister(rootDir, pattern, goos, goarch string) ([]string, error) {
@@ -135,16 +133,6 @@ func (e *Extractor) results(projectRoot string, startDir string, modules []modul
 }
 
 func (e *Extractor) ExtractModule(moduleDir string) (*Assets, error) {
-	e.mu.Lock()
-	warnOnce := e.warnOnce
-	e.mu.Unlock()
-
-	if len(e.AssetLibraries) == 0 && warnOnce != nil {
-		warnOnce.Do(func() {
-			e.log(noAssetLibrariesWarning)
-		})
-	}
-
 	rootDir, err := findProjectRoot(moduleDir)
 	if err != nil {
 		return nil, fmt.Err("find project root:", err)
@@ -191,16 +179,6 @@ func (e *Extractor) ExtractModule(moduleDir string) (*Assets, error) {
 }
 
 func (e *Extractor) ExtractAll() ([]*Assets, error) {
-	e.mu.Lock()
-	warnOnce := e.warnOnce
-	e.mu.Unlock()
-
-	if len(e.AssetLibraries) == 0 && warnOnce != nil {
-		warnOnce.Do(func() {
-			e.log(noAssetLibrariesWarning)
-		})
-	}
-
 	modules, err := e.discoverModules(e.rootDir)
 	if err != nil {
 		return nil, err
