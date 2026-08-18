@@ -3,12 +3,13 @@
 package sitec_test
 
 import (
-	"github.com/tinywasm/sitec"
-	"github.com/tinywasm/router/mock"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/tinywasm/router/mock"
+	"github.com/tinywasm/sitec"
 )
 
 func TestRegisterRoutes(t *testing.T) {
@@ -27,27 +28,18 @@ func TestRegisterRoutes(t *testing.T) {
 		}
 
 		r := newTestRouter(am)
-		routes := r.Routes()
 
-		// Verify routes are registered
-		if len(routes) == 0 {
-			t.Fatal("Expected routes to be registered")
-		}
-
-		routePaths := make(map[string]bool)
-		for _, route := range routes {
-			routePaths[route.Path] = true
+		// Invoke GET /style.css and GET /script.js to verify actual bytes served
+		ctxCSS := &mock.Context{InPath: "/style.css", InMethod: "GET"}
+		r.Invoke("GET", "/style.css", ctxCSS)
+		if !strings.Contains(string(ctxCSS.ResponseBody()), "body{}") {
+			t.Errorf("expected body{} in CSS response, got %q", string(ctxCSS.ResponseBody()))
 		}
 
-		// Check key routes exist
-		if !routePaths["/"] {
-			t.Error("index route (/) not registered")
-		}
-		if !routePaths["/style.css"] {
-			t.Error("CSS route not registered")
-		}
-		if !routePaths["/script.js"] {
-			t.Error("JS route not registered")
+		ctxJS := &mock.Context{InPath: "/script.js", InMethod: "GET"}
+		r.Invoke("GET", "/script.js", ctxJS)
+		if !strings.Contains(string(ctxJS.ResponseBody()), "a=1") {
+			t.Errorf("expected a=1 in JS response, got %q", string(ctxJS.ResponseBody()))
 		}
 	})
 
@@ -63,21 +55,11 @@ func TestRegisterRoutes(t *testing.T) {
 		}
 
 		r := newTestRouter(am)
-		routes := r.Routes()
 
-		routePaths := make(map[string]bool)
-		for _, route := range routes {
-			routePaths[route.Path] = true
-		}
-
-		// Index should still be at root
-		if !routePaths["/"] {
-			t.Error("index route (/) not registered")
-		}
-
-		// Assets should be under /static/
-		if !routePaths["/static/script.js"] {
-			t.Error("/static/script.js route not registered")
+		ctxJS := &mock.Context{InPath: "/static/script.js", InMethod: "GET"}
+		r.Invoke("GET", "/static/script.js", ctxJS)
+		if !strings.Contains(string(ctxJS.ResponseBody()), "b=2") {
+			t.Errorf("expected b=2 at /static/script.js, got %q", string(ctxJS.ResponseBody()))
 		}
 	})
 
@@ -88,18 +70,103 @@ func TestRegisterRoutes(t *testing.T) {
 		am := sitec.NewAssetMin(setup.ac)
 
 		r := newTestRouter(am)
-		routes := r.Routes()
 
-		routePaths := make(map[string]bool)
-		for _, route := range routes {
-			routePaths[route.Path] = true
-		}
-
-		// Sprite should not have its own route
-		if routePaths["/icons.svg"] {
-			t.Error("sprite (/icons.svg) should not be exposed as route")
+		ctxSprite := &mock.Context{InPath: "/icons.svg", InMethod: "GET"}
+		r.Invoke("GET", "/icons.svg", ctxSprite)
+		if string(ctxSprite.ResponseBody()) != "404 no encontrado" {
+			t.Errorf("expected 404 no encontrado for sprite route, got %q", string(ctxSprite.ResponseBody()))
 		}
 	})
+}
+
+func TestSirveElEstadoActualNoElDelRegistro(t *testing.T) {
+	setup := newTestSetup(t)
+	defer setup.cleanup()
+
+	am := sitec.NewAssetMin(setup.ac)
+
+	f1 := setup.createTempFile("test1.css", ".a{color:red}")
+	if err := am.NewFileEvent("test1.css", ".css", f1, "create"); err != nil {
+		t.Fatalf("NewFileEvent test1.css: %v", err)
+	}
+
+	r := newTestRouter(am)
+
+	f2 := setup.createTempFile("test2.css", ".b{color:blue}")
+	if err := am.NewFileEvent("test2.css", ".css", f2, "create"); err != nil {
+		t.Fatalf("NewFileEvent test2.css: %v", err)
+	}
+
+	if err := am.Write("especialidades/index.html", []byte("<h1>Especialidades</h1>"), "text/html"); err != nil {
+		t.Fatalf("am.Write especialidades/index.html: %v", err)
+	}
+
+	ctxCSS := &mock.Context{InPath: "/style.css", InMethod: "GET"}
+	r.Invoke("GET", "/style.css", ctxCSS)
+	if !strings.Contains(string(ctxCSS.ResponseBody()), ".b{color:blue}") {
+		t.Errorf("expected updated CSS content, got %q", string(ctxCSS.ResponseBody()))
+	}
+
+	ctxPage := &mock.Context{InPath: "/especialidades/", InMethod: "GET"}
+	r.Invoke("GET", "/especialidades/", ctxPage)
+	if string(ctxPage.ResponseBody()) != "<h1>Especialidades</h1>" {
+		t.Errorf("expected HTML content, got %q", string(ctxPage.ResponseBody()))
+	}
+}
+
+func TestUnArchivoAusenteEs404NoLaPortada(t *testing.T) {
+	setup := newTestSetup(t)
+	defer setup.cleanup()
+
+	am := sitec.NewAssetMin(setup.ac)
+
+	r := newTestRouter(am)
+
+	ctx := &mock.Context{InPath: "/img/no-existe.svg", InMethod: "GET"}
+	r.Invoke("GET", "/img/no-existe.svg", ctx)
+
+	if string(ctx.ResponseBody()) != "404 no encontrado" {
+		t.Errorf("expected '404 no encontrado', got %q", string(ctx.ResponseBody()))
+	}
+}
+
+func TestElSpriteNoSeExponeComoRecurso(t *testing.T) {
+	setup := newTestSetup(t)
+	defer setup.cleanup()
+
+	am := sitec.NewAssetMin(setup.ac)
+
+	r := newTestRouter(am)
+
+	ctx := &mock.Context{InPath: "/icons.svg", InMethod: "GET"}
+	r.Invoke("GET", "/icons.svg", ctx)
+
+	if string(ctx.ResponseBody()) != "404 no encontrado" {
+		t.Errorf("expected '404 no encontrado', got %q", string(ctx.ResponseBody()))
+	}
+}
+
+func TestAssetMinWriteServiblePorHTTP(t *testing.T) {
+	setup := newTestSetup(t)
+	defer setup.cleanup()
+
+	am := sitec.NewAssetMin(setup.ac)
+
+	if err := am.Write("client.wasm", []byte("wasm-bytes"), "application/wasm"); err != nil {
+		t.Fatalf("am.Write client.wasm failed: %v", err)
+	}
+
+	r := newTestRouter(am)
+
+	ctx := &mock.Context{InPath: "/client.wasm", InMethod: "GET"}
+	r.Invoke("GET", "/client.wasm", ctx)
+
+	if string(ctx.ResponseBody()) != "wasm-bytes" {
+		t.Errorf("expected 'wasm-bytes', got %q", string(ctx.ResponseBody()))
+	}
+	if ctx.GetHeader("Content-Type") != "application/wasm" {
+		t.Errorf("expected Content-Type 'application/wasm', got %q", ctx.GetHeader("Content-Type"))
+	}
 }
 
 func TestSpriteInjectedInHTML(t *testing.T) {

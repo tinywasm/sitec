@@ -64,22 +64,18 @@ func TestFaviconCacheHeaders(t *testing.T) {
 	setup.ac.DevMode = true
 	am := sitec.NewAssetMin(setup.ac)
 
-	faviconPath := setup.createTempFile("favicon.svg", `<svg xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="50" r="40"/></svg>`)
-	am.NewFileEvent("favicon.svg", ".svg", faviconPath, "create")
+	faviconPath := filepath.Join(t.TempDir(), "favicon.svg")
+	os.WriteFile(faviconPath, []byte(`<svg xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="50" r="40"/></svg>`), 0644)
+	if err := am.NewFileEvent("favicon.svg", ".svg", faviconPath, "create"); err != nil {
+		t.Fatalf("NewFileEvent: %v", err)
+	}
 
 	r := &mock.Router{}
 	serve.RegisterRoutes(r, am)
 
-	// Verify route is registered
-	routes := r.Routes()
-	found := false
-	for _, route := range routes {
-		if strings.Contains(route.Path, "favicon") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Error("favicon route not registered")
+	ctxFavicon := &mock.Context{InPath: "/favicon.svg", InMethod: "GET"}
+	r.Invoke("GET", "/favicon.svg", ctxFavicon)
+	if !strings.Contains(string(ctxFavicon.ResponseBody()), "<svg") {
+		t.Errorf("expected favicon SVG in response, got %q", string(ctxFavicon.ResponseBody()))
 	}
 }
