@@ -1,8 +1,9 @@
 ---
 PLAN: "feat!: sitec.Build — un solo ensamblador y una salida que no puede ser parcial"
 TAG: v0.1.0
-STATUS: running
+STATUS: review
 SESSION: 13511480685825302276
+PR: https://github.com/tinywasm/sitec/pull/16
 ---
 
 > Este plan se despacha con el flujo CodeJob. Ver skill: agents-workflow.
