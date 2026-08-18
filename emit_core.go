@@ -5,6 +5,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	twcss "github.com/tinywasm/css"
 	"github.com/tinywasm/fmt"
 	"github.com/tinywasm/font"
+	imgmin "github.com/tinywasm/image/min"
 	"github.com/tinywasm/svg/sprite"
 )
 
@@ -85,6 +87,7 @@ func (c *AssetMin) SetWasm(filename string, runtime string) {
 
 type ImageProcessor interface {
 	UnobservedFiles() []string
+	Artifacts() []imgmin.Artifact
 }
 
 type SSRExtractor interface {
@@ -451,18 +454,63 @@ func findIndex(s string, substr string) int {
 }
 
 // FS implementation for AssetMin:
-func (c *AssetMin) Read(path string) ([]byte, string, bool) {
+func (c *AssetMin) Read(p string) ([]byte, string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	a, ok := c.allAssets[path]
-	if !ok {
-		return nil, "", false
+
+	urlKey := p
+	if !strings.HasPrefix(urlKey, "/") {
+		urlKey = "/" + urlKey
 	}
-	content, err := a.GetMinifiedContent(c.activeMinifier())
-	if err != nil {
-		return nil, "", false
+
+	outDir := ""
+	if c.Config != nil {
+		outDir = c.Config.OutputDir
 	}
-	return content, a.mediatype, true
+
+	for _, a := range c.allAssets {
+		cleanURL := urlKey
+		if strings.HasSuffix(cleanURL, "/") && cleanURL != "/" {
+			cleanURL = strings.TrimRight(cleanURL, "/")
+		}
+		aURL := a.GetURLPath()
+		if strings.HasSuffix(aURL, "/") && aURL != "/" {
+			aURL = strings.TrimRight(aURL, "/")
+		}
+
+		if a.GetURLPath() == urlKey || aURL == cleanURL || a.outputPath == p ||
+			(a.GetURLPath() == "/" && (urlKey == "/index.html" || (outDir != "" && p == filepath.Join(outDir, "index.html")))) ||
+			(strings.HasSuffix(urlKey, "/") && urlKey != "/" && (a.GetURLPath() == urlKey+"index.html" || (outDir != "" && a.outputPath == filepath.Join(outDir, strings.TrimPrefix(urlKey, "/")+"index.html")))) {
+			content, err := a.GetMinifiedContent(c.activeMinifier())
+			if err == nil {
+				return content, a.mediatype, true
+			}
+		}
+	}
+
+	for i := len(c.directArtifacts) - 1; i >= 0; i-- {
+		art := c.directArtifacts[i]
+		if art.Path == urlKey || art.Path == p || (strings.HasSuffix(urlKey, "/") && art.Path == urlKey+"index.html") {
+			return art.Content, art.Mediatype, true
+		}
+	}
+
+	if c.fs != nil {
+		clean := strings.TrimPrefix(p, "/")
+		if content, mt, ok := c.fs.Read(clean); ok {
+			return content, mt, true
+		}
+		if content, mt, ok := c.fs.Read(p); ok {
+			return content, mt, true
+		}
+		if strings.HasSuffix(clean, "/") {
+			if content, mt, ok := c.fs.Read(clean + "index.html"); ok {
+				return content, mt, true
+			}
+		}
+	}
+
+	return nil, "", false
 }
 
 // Write writes a pre-built artifact (e.g. the compiled WASM binary) straight to
@@ -483,9 +531,12 @@ func (c *AssetMin) Write(outPath string, content []byte, mediatype string) error
 	if c.Config != nil {
 		outputDir = c.Config.OutputDir
 	}
+
+	urlKey := path.Join("/", outPath)
 	c.directArtifacts = append(c.directArtifacts, Artifact{
-		Path:      path.Join("/", outPath),
+		Path:      urlKey,
 		Mediatype: mediatype,
+		Content:   content,
 	})
 	c.mu.Unlock()
 
