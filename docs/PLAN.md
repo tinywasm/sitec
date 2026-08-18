@@ -2,9 +2,8 @@
 PLAN: "fix(serve): el sitio se resuelve en cada petición, no en una foto al registrar"
 EXECUTOR: jules
 REVIEWER: none
-STATUS: review
+STATUS: running
 SESSION: 932892522728194436
-PR: https://github.com/tinywasm/sitec/pull/17
 ---
 
 > Este plan se despacha con el flujo CodeJob. Ver skill: agents-workflow.
