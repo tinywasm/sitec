@@ -30,7 +30,7 @@ go 1.25.2
 
 require (
 	github.com/tinywasm/css v0.4.12
-	github.com/tinywasm/image v0.0.18
+	github.com/tinywasm/image v0.0.21
 )
 `
 	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(gomodContent), 0644); err != nil {
@@ -155,15 +155,25 @@ func RenderCSS() *css.Stylesheet {
 		t.Fatalf("expected processed image files in %s, but directory is empty", imgOutDir)
 	}
 
-	foundWebP := false
+	// El fixture es un PNG totalmente opaco, así que cada variante sale en
+	// .jpg. Este test exigía un .webp, que es exactamente la duplicación que
+	// se corrigió: el pipeline emitía las dos codificaciones del mismo origen
+	// y la página cargaba una mientras la otra viajaba al CDN sin que nadie la
+	// pidiera —y en fotografías la .webp sin pérdida pesaba más que la .jpg.
+	var jpg, webp []string
 	for _, entry := range entries {
-		if filepath.Ext(entry.Name()) == ".webp" {
-			foundWebP = true
-			break
+		switch filepath.Ext(entry.Name()) {
+		case ".jpg":
+			jpg = append(jpg, entry.Name())
+		case ".webp":
+			webp = append(webp, entry.Name())
 		}
 	}
 
-	if !foundWebP {
-		t.Errorf("expected to find at least one .webp variant file in output img dir")
+	if len(jpg) == 0 {
+		t.Errorf("un origen opaco debe emitir variantes .jpg; la salida tiene %v", entries)
+	}
+	if len(webp) != 0 {
+		t.Errorf("un origen opaco no debe emitir además .webp: %v duplican a %v", webp, jpg)
 	}
 }
