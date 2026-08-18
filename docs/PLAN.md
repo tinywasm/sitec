@@ -2,6 +2,8 @@
 PLAN: "fix(serve): el sitio se resuelve en cada petición, no en una foto al registrar"
 EXECUTOR: jules
 REVIEWER: none
+STATUS: running
+SESSION: 932892522728194436
 ---
 
 > Este plan se despacha con el flujo CodeJob. Ver skill: agents-workflow.
