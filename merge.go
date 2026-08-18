@@ -63,7 +63,7 @@ func MergeResultsFor(modulePath string, results map[string]CollectorOutput) (Col
 			// every icon in the ecosystem: the sprite shipped empty and each
 			// <use href="#…"> in the markup pointed at a symbol that was
 			// never emitted.
-			merged.Icons = merged.Icons.Merge(out.Icons)
+			merged.Icons = sprite.MergeAll(merged.Icons, out.Icons)
 		}
 		if out.Fonts.Family() != "" {
 			if fontsFrom != "" {

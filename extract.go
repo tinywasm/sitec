@@ -115,7 +115,7 @@ func invokeSSRExtractorOnce(projectRoot string, startDir string, modules []modul
 				}
 				// Merge returns a new sprite instead of mutating the
 				// receiver; the result is the merge.
-				mergedSprite = mergedSprite.Merge(sp)
+				mergedSprite = sprite.MergeAll(mergedSprite, sp)
 			}
 		}
 		var fonts font.Declaration
