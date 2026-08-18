@@ -27,6 +27,7 @@ func TestPublishImagesHaceServibleUnaImagen(t *testing.T) {
 	defer setup.cleanup()
 
 	am := sitec.NewAssetMin(setup.ac)
+	am.SetFS(sitec.NewMemFS())
 
 	ip := &stubImageProcessor{
 		artifacts: []imgmin.Artifact{
