@@ -9,7 +9,7 @@ require (
 	github.com/tinywasm/fmt v0.25.5
 	github.com/tinywasm/font v0.0.4
 	github.com/tinywasm/html v0.0.17
-	github.com/tinywasm/image v0.0.21
+	github.com/tinywasm/image v0.0.22
 	github.com/tinywasm/js v0.0.4
 	github.com/tinywasm/modfind v0.0.4
 	github.com/tinywasm/router v0.1.13
