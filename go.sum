@@ -36,8 +36,8 @@ github.com/tinywasm/modfind v0.0.4 h1:g7EFZArEftll9pxg5VAToIltVnEMRWfE+KEjPJpsNg
 github.com/tinywasm/modfind v0.0.4/go.mod h1:g1ZkkxCZ7vwDI5O23AMWlPJy4ctRWfWKZX/y+KMH1FM=
 github.com/tinywasm/router v0.1.13 h1:ou1eXRA63cUonkvTGCYoDNWP2U1tY6fdYMJjmlSQ1Yk=
 github.com/tinywasm/router v0.1.13/go.mod h1:JYL/YiErI7bbkg1suosA1Et8Fv1jxrFY/dLqvjq/flc=
-github.com/tinywasm/svg v0.1.21 h1:AJqTgOqPbej5DbB2M4t9Y5tbNiNln3Iwau/2uJbBwBw=
-github.com/tinywasm/svg v0.1.21/go.mod h1:2o5Z8LsbCT6ltV0nKPtmZFusYqHi8AUGnk7jDQ6xj+I=
+github.com/tinywasm/svg v0.2.0 h1:1oh6T4KxFcBRe79VTXKxc1kgCVh60sU0nuzJz+icYo0=
+github.com/tinywasm/svg v0.2.0/go.mod h1:2o5Z8LsbCT6ltV0nKPtmZFusYqHi8AUGnk7jDQ6xj+I=
 github.com/tinywasm/tinygo v0.0.11 h1:mdSPat9PcIcT1ZW6y+7DJmAbne2vLHVpTHqTCRL/L/A=
 github.com/tinywasm/tinygo v0.0.11/go.mod h1:AFP4RTqJN9HKR/AWwXSibOF0HwlHIIpBNP0KWO2nvCU=
 golang.org/x/image v0.0.0-20191009234506-e7c1f5e7dbb8/go.mod h1:FeLwcggjj3mMvU+oOTbSwawSJRM1uh48EjtB4UJZlP0=

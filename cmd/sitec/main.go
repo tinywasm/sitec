@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/tinywasm/image/min"
 	"github.com/tinywasm/sitec"
 )
 
@@ -61,93 +60,35 @@ type Artifact struct {
 
 func runBuild(args []string) {
 	fsSet := flag.NewFlagSet("build", flag.ExitOnError)
-	outputDir := fsSet.String("o", "web/public", "Directorio de salida")
+	outputDir := fsSet.String("o", sitec.DefaultOutputDir, "Directorio de salida")
 	_ = fsSet.Parse(args)
 
-	// Resolved once, absolute: IsRoot compares module PATHS against the
-	// module list from `go list -m`, which is always absolute. A literal "."
-	// never matches, so ownership resolution silently falls back to a
-	// synthetic module and RootCSS from the real root gets dropped.
 	root, err := filepath.Abs(".")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error resolviendo el directorio: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Validate project
-	if err := sitec.ValidateProject(root); err != nil {
-		fmt.Fprintf(os.Stderr, "Error de validación del proyecto: %v\n", err)
-		os.Exit(1)
-	}
-
-	e := sitec.New(root)
-	e.SetLog(func(msg ...any) {
-		fmt.Fprintln(os.Stderr, msg...)
-	})
-
-	// Check if web/client.go exists to decide if we compile WASM
-	if _, err := os.Stat(filepath.Join(root, "web", "client.go")); err == nil {
-		e.SetWasmBuilder(sitec.NewDefaultWasmBuilder(false))
-	}
-
-	all, err := e.ExtractAll()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error de extracción: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Setup AssetMin with osFS
-	am := sitec.NewAssetMin(&sitec.Config{
+	site, err := sitec.Build(sitec.BuildConfig{
+		RootDir:   root,
+		Mode:      sitec.ModeRelease,
 		OutputDir: *outputDir,
-		RootDir:   root,
+		Log: func(msg ...any) {
+			fmt.Fprintln(os.Stderr, msg...)
+		},
 	})
-	am.SetLog(func(msg ...any) {
-		fmt.Fprintln(os.Stderr, msg...)
-	})
-
-	am.SetSSRExtractor(e)
-	am.SetFS(sitec.NewOsFS())
-
-	imgHandler := min.New(&min.Config{
-		RootDir:   root,
-		OutputDir: filepath.Join(*outputDir, "img"),
-		Quality:   82,
-	})
-	imgHandler.SetLog(func(msg ...any) { fmt.Fprintln(os.Stderr, msg...) })
-	imgHandler.SetFinder(e.Finder())
-	am.SetImageProcessor(imgHandler)
-
-	if e.WasmBuilder() != nil {
-		wasmOut, err := e.WasmBuilder().Build(root)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error building WASM: %v\n", err)
-			os.Exit(1)
-		}
-		am.SetWasm(wasmOut.Filename, wasmOut.Runtime)
-		if err := am.Write(wasmOut.Filename, wasmOut.Binary, "application/wasm"); err != nil {
-			fmt.Fprintf(os.Stderr, "Error writing WASM: %v\n", err)
-			os.Exit(1)
-		}
-	}
-
-	if err := am.RouteExtractedAssets(all); err != nil {
-		fmt.Fprintf(os.Stderr, "Error ruteando assets: %v\n", err)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error en construcción: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := imgHandler.LoadImages(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error procesando imágenes: %v\n", err)
+	if err := site.WriteTo(sitec.NewOsFS()); err != nil {
+		fmt.Fprintf(os.Stderr, "Error escribiendo sitio: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := am.FlushToDisk(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error guardando assets a disco: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Prepare manifest
 	var artifacts []Artifact
-	for _, art := range am.List() {
+	for _, art := range site.Artifacts() {
 		artifacts = append(artifacts, Artifact{
 			Path:      art.Path,
 			Mediatype: art.Mediatype,
@@ -177,28 +118,18 @@ func runCheck(args []string) {
 		os.Exit(1)
 	}
 
-	// Validate project
-	if err := sitec.ValidateProject(root); err != nil {
-		fmt.Fprintf(os.Stderr, "Error de validación del proyecto: %v\n", err)
-		os.Exit(1)
-	}
-
-	e := sitec.New(root)
-	e.SetLog(func(msg ...any) {
+	modules, err := sitec.Check(root, func(msg ...any) {
 		fmt.Fprintln(os.Stderr, msg...)
 	})
-
-	all, err := e.ExtractAll()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error de validación (check falló): %v\n", err)
 		os.Exit(1)
 	}
 
-	// Prepare manifest (just list module names extracted)
 	var artifacts []Artifact
-	for _, a := range all {
+	for _, m := range modules {
 		artifacts = append(artifacts, Artifact{
-			Path:      a.ModuleName,
+			Path:      m,
 			Mediatype: "package/go",
 		})
 	}
