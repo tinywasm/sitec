@@ -2,6 +2,7 @@ package sitec
 
 import (
 	"path"
+	"path/filepath"
 
 	"github.com/tinywasm/fmt"
 )
@@ -28,8 +29,21 @@ func (c *AssetMin) PublishImages() error {
 		return fmt.Err("sitec: PublishImages sin FS configurado")
 	}
 
+	c.mu.Lock()
+	outputDir := ""
+	if c.Config != nil {
+		outputDir = c.Config.OutputDir
+	}
+	c.mu.Unlock()
+
 	for _, a := range ip.Artifacts() {
+		// urlKey (sin OutputDir) es lo que resuelve Read/directArtifacts en cada
+		// petición — así sirve desde memoria aunque el disco no exista o falle.
+		// diskPath (con OutputDir) es la copia física, igual que outputPath para
+		// el resto de assets: sin el prefijo, osFS.Write escribe relativo al cwd
+		// del proceso, no del sitio — un directorio de salida fantasma.
 		urlKey := path.Join("/", a.Path)
+		diskPath := filepath.Join(outputDir, a.Path)
 
 		c.mu.Lock()
 		c.directArtifacts = append(c.directArtifacts, Artifact{
@@ -39,7 +53,7 @@ func (c *AssetMin) PublishImages() error {
 		})
 		c.mu.Unlock()
 
-		if err := fs.Write(a.Path, a.Content, a.Mediatype); err != nil {
+		if err := fs.Write(diskPath, a.Content, a.Mediatype); err != nil {
 			return err
 		}
 	}
