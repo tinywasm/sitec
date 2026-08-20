@@ -9,7 +9,7 @@ require (
 	github.com/tinywasm/fmt v0.25.5
 	github.com/tinywasm/font v0.0.4
 	github.com/tinywasm/html v0.0.17
-	github.com/tinywasm/image v0.0.23
+	github.com/tinywasm/image v0.0.24
 	github.com/tinywasm/js v0.0.4
 	github.com/tinywasm/modfind v0.0.4
 	github.com/tinywasm/router v0.1.22
@@ -26,5 +26,5 @@ require (
 	github.com/tinywasm/fetch v0.1.24 // indirect
 	github.com/tinywasm/json v0.5.17 // indirect
 	github.com/tinywasm/model v0.1.4 // indirect
-	golang.org/x/image v0.24.0 // indirect
+	golang.org/x/image v0.45.0 // indirect
 )
