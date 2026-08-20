@@ -22,6 +22,15 @@ import (
 	"github.com/tinywasm/svg/sprite"
 )
 
+const (
+	msgSiteNonRoot        = "sitec: el módulo %s declara RenderSite() pero no es el proyecto raíz — solo el raíz describe el sitio; se ignora"
+	msgTwoRootSites       = "sitec: RenderSite() declarada por dos módulos raíz: %s y %s"
+	msgSiteURLPrecedence  = "sitec: aviso: RenderSite() declara URL %s y BuildConfig trae %s — manda la del proyecto"
+	msgSiteWithoutPages   = "sitec: el proyecto declara RenderSite() (es un sitio estático) pero ningún módulo declara RenderPages(): la salida sería el shell de una aplicación, no un sitio"
+	msgPagesWithoutSite   = "sitec: aviso: el proyecto declara RenderPages() pero no RenderSite(): la salida no tendrá sitemap ni activos estáticos"
+	msgStaticAbsentPrefix = "sitec: activo estático declarado y ausente: "
+)
+
 type AssetMin struct {
 	mu sync.Mutex // Mutex for synchronization
 	*Config
@@ -49,6 +58,7 @@ type AssetMin struct {
 	spriteMu            sync.RWMutex
 	fontsMu             sync.RWMutex
 	fonts               font.Declaration // root module only; zero-value = none
+	site                *Site            // declarado por el raíz via RenderSite(); nil = el proyecto es una aplicación
 	fs                  FS
 	wasmFilename        string
 	wasmRuntime         string
@@ -80,7 +90,7 @@ func (c *AssetMin) MinifyEnabled() bool {
 
 func (c *AssetMin) SetWasm(filename string, runtime string) {
 	c.wasmMu.Lock()
-	defer  c.wasmMu.Unlock()
+	defer c.wasmMu.Unlock()
 	c.wasmFilename = filename
 	c.wasmRuntime = runtime
 }
@@ -150,6 +160,21 @@ func (c *AssetMin) RouteExtractedAssets(all []*Assets) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// 0. RenderSite(): solo el raíz describe el sitio, y solo uno. El aviso de
+	// módulo no raíz lo emite routeAssets (cubre también el camino de reload).
+	// Aquí solo se detecta el caso que un single-module reload no puede ver:
+	// dos raíces declarándola.
+	var siteOwner string
+	for _, a := range all {
+		if a == nil || a.Site == nil || !a.IsRoot {
+			continue
+		}
+		if siteOwner != "" {
+			return fmt.Err(fmt.Sprintf(msgTwoRootSites, siteOwner, a.ModuleName))
+		}
+		siteOwner = a.ModuleName
+	}
+
 	// 1. Check page collisions across modules
 	var htmlModule string
 	pageOwners := make(map[string]string)
@@ -201,6 +226,18 @@ func (c *AssetMin) RouteExtractedAssets(all []*Assets) error {
 		if err := c.emitPages(a); err != nil {
 			return err
 		}
+	}
+
+	// 3.5 Diagnóstico del dueño de index.html. Con RenderSite() la intención
+	// ya es explícita, así que se puede exigir: sin páginas, la salida sería
+	// el shell de una aplicación —publicar eso sin un solo error es lo que
+	// este check elimina. A la inversa, páginas sin RenderSite() significan
+	// un sitio que saldrá sin sitemap ni activos estáticos: aviso, no error.
+	if c.site != nil && len(pageOwners) == 0 {
+		return fmt.Err(msgSiteWithoutPages)
+	}
+	if c.site == nil && len(pageOwners) > 0 {
+		c.Logger(msgPagesWithoutSite)
 	}
 
 	// 4. Emit sitemap.xml if SiteURL is set
@@ -278,13 +315,13 @@ type Config struct {
 
 func NewAssetMin(ac *Config) *AssetMin {
 	c := &AssetMin{
-		Config:            ac,
-		min:               minify.New(),
-		minifyEnabled:     true,
-		standaloneJS:      make(map[string]*asset),
-		standaloneOwners:  make(map[string][]string),
-		moduleSprites:     make(map[string]*sprite.Sprite),
-		fs:                NewOsFS(),
+		Config:           ac,
+		min:              minify.New(),
+		minifyEnabled:    true,
+		standaloneJS:     make(map[string]*asset),
+		standaloneOwners: make(map[string][]string),
+		moduleSprites:    make(map[string]*sprite.Sprite),
+		fs:               NewOsFS(),
 	}
 
 	if c.AppName == "" {

@@ -18,15 +18,35 @@ func (p *pageBodyComponent) String() string {
 	return p.content
 }
 
-// Movido desde assetmin/ssr_loader.go — la MITAD de compilacion.
+// routeAssets routes one module's assets. Es la MITAD de compilacion.
 // Decide que modulo aporta el RootCSS, los slots de cascada y la copia de
 // fuentes: politica de como se ensambla la salida, no de cuando se reintenta.
-
 func (c *AssetMin) routeAssets(a *Assets, isRoot, isFramework bool) error {
 	if isRoot {
 		c.fromRoot = nil
 	} else if isFramework {
 		c.fromCss = nil
+	}
+
+	// RenderSite(): solo el raíz describe el sitio. El raíz manda sobre
+	// BuildConfig (URL efectiva resuelta una sola vez, aquí, en el campo ya
+	// existente c.SiteURL — los puntos de uso, sitemap y canónicas, no repiten
+	// la decisión). Un módulo no raíz que la declare: aviso ruidoso e ignorada.
+	if a.Site != nil {
+		if isRoot {
+			c.site = a.Site
+			if a.Site.URL != "" {
+				if callerURL := c.SiteURL; callerURL != "" && callerURL != a.Site.URL {
+					c.Logger(fmt.Sprintf(msgSiteURLPrecedence, a.Site.URL, callerURL))
+				}
+				c.SiteURL = a.Site.URL
+			}
+		} else {
+			c.Logger(fmt.Sprintf(msgSiteNonRoot, a.ModuleName))
+		}
+	} else if isRoot {
+		// El raíz dejó de declarar RenderSite() (reload): deja de ser un sitio.
+		c.site = nil
 	}
 
 	if a.RootCSS != "" {

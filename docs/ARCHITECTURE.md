@@ -56,6 +56,20 @@ names, on any type, in any non-test file.
 | `RenderJS()` | `JS` | scripts |
 | `IconSvg()` | `Icons` | sprite, merged across packages |
 | `Fonts()` | `Fonts` | typeface identity (`font.Declaration`); one per module |
+| `RenderSite()` | `Site` | site declaration (`*sitec.Site`): public URL + static assets. Only the project root may declare it; a second root or any non-root module declaring it is a build error/warning respectively |
+
+A module's `Site` travels with the module: the root's declaration is what the
+assembler listens to. It resolves the effective `SiteURL` once (the project
+wins over `BuildConfig.SiteURL`, with a warning when both disagree) and feeds
+two outputs downstream: `sitemap.xml` when `URL` is non-empty, and the static
+assets copied verbatim (united with `BuildConfig.StaticAssets`, deduped). A
+declared-but-absent static asset fails the build — the project owns its
+identity, so a missing logo must fail in CI, not in production.
+
+`RenderSite()` also makes the intent explicit, which turns silent failures
+into checks: a site declared without `RenderPages()` is a build error (the
+output would be an app shell, not a site), and pages without a `RenderSite()`
+warn that the output will ship without sitemap or static assets.
 
 Obligations on the author:
 

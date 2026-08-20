@@ -72,14 +72,13 @@ func TestPublishImagesHaceServibleUnaImagen(t *testing.T) {
 	}
 }
 
-// TestPublishImagesEscribeBajoOutputDir prueba con el FS por defecto (osFS,
-// el que usa el demonio en producción, no NewMemFS()): antes de este test,
-// PublishImages escribía en fs.Write(a.Path, ...) sin anclar a OutputDir, así
-// que osFS —que trata rutas relativas como relativas al cwd del proceso—
-// dejaba el archivo en <cwd>/img/foto.jpg en vez de <OutputDir>/img/foto.jpg.
-// Con el demonio corriendo desde la raíz del proyecto del usuario, eso creaba
-// un directorio de salida fantasma ahí mismo.
-func TestPublishImagesEscribeBajoOutputDir(t *testing.T) {
+// TestPublishImagesNoEscribeEnDisco fija la semántica nueva de §7: publicar es
+// alimentar la memoria (Read/directArtifacts), escribir en disco es
+// responsabilidad de quien vuelca (WriteTo/FlushToDisk). Antes, PublishImages
+// escribía fs.Write(...) además de publicar — con el FS por defecto (osFS)
+// eso dejaba el archivo en <cwd>/img/foto.jpg, un directorio de salida
+// fantasma dentro del proyecto del usuario con bytes que no son el entregable.
+func TestPublishImagesNoEscribeEnDisco(t *testing.T) {
 	fakeCwd := t.TempDir()
 	originalCwd, err := os.Getwd()
 	if err != nil {
@@ -93,6 +92,7 @@ func TestPublishImagesEscribeBajoOutputDir(t *testing.T) {
 	outputDir := t.TempDir()
 	ac := &sitec.Config{OutputDir: outputDir}
 	am := sitec.NewAssetMin(ac)
+	am.SetFS(sitec.NewOsFS())
 
 	ip := &stubImageProcessor{
 		artifacts: []imgmin.Artifact{
@@ -109,13 +109,21 @@ func TestPublishImagesEscribeBajoOutputDir(t *testing.T) {
 		t.Fatalf("PublishImages failed: %v", err)
 	}
 
-	wantPath := filepath.Join(outputDir, "img", "foto.jpg")
-	if _, err := os.Stat(wantPath); err != nil {
-		t.Errorf("se esperaba la imagen en %s (bajo OutputDir): %v", wantPath, err)
+	// La imagen está servible desde memoria…
+	content, mediatype, ok := am.Read("img/foto.jpg")
+	if !ok {
+		t.Fatalf("am.Read failed for img/foto.jpg after PublishImages")
+	}
+	if string(content) != "fake-jpeg-bytes" || mediatype != "image/jpeg" {
+		t.Errorf("artefacto publicado corrupto: %q %q", content, mediatype)
 	}
 
+	// …pero publicar no escribió nada: ni bajo OutputDir ni en el cwd.
+	if _, err := os.Stat(filepath.Join(outputDir, "img", "foto.jpg")); err == nil {
+		t.Errorf("PublishImages no debe escribir en disco (bajo OutputDir lo hace el volcado)")
+	}
 	strayPath := filepath.Join(fakeCwd, "img", "foto.jpg")
 	if _, err := os.Stat(strayPath); err == nil {
-		t.Errorf("PublishImages escribió fuera de OutputDir, en el cwd del proceso: %s", strayPath)
+		t.Errorf("PublishImages escribió en el cwd del proceso: %s", strayPath)
 	}
 }

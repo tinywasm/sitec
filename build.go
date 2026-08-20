@@ -3,6 +3,7 @@ package sitec
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/tinywasm/fmt"
 	"github.com/tinywasm/image/min"
@@ -24,12 +25,37 @@ const (
 	ModeDev
 )
 
+// Site es lo que un módulo RAÍZ declara sobre el sitio que produce.
+//
+// Declararla convierte al proyecto en un sitio estático: el entregable es el
+// directorio de salida y RenderPages() es el dueño del index.html. Un proyecto
+// sin RenderSite() es una aplicación y su index.html es el shell de arranque
+// del WASM.
+//
+// Lo que declara RenderSite() manda sobre lo que traiga BuildConfig. El
+// proyecto es la autoridad sobre sí mismo; BuildConfig es el afinado del
+// llamador. Cuando ambos traen valor y difieren, se registra un aviso con los
+// dos valores y se aplica el del proyecto.
+type Site struct {
+	// URL es la URL pública del sitio. Habilita sitemap.xml y las URL
+	// canónicas absolutas. Vacía ⇒ no se emite sitemap.
+	URL string `json:"url"`
+
+	// StaticAssets son rutas relativas a la raíz del módulo que se copian
+	// verbatim a la salida. Para lo que NO pasa por el pipeline de imágenes:
+	// SVG de marca, PDF, robots.txt.
+	//
+	// Un archivo o directorio declarado y ausente es un ERROR de build, no un
+	// aviso: un logo que falta en producción se descubre demasiado tarde.
+	StaticAssets []string `json:"static_assets"`
+}
+
 // BuildConfig contains the site build settings.
 type BuildConfig struct {
-	RootDir        string   // Root directory of the module (where go.mod lives). Required.
+	RootDir        string // Root directory of the module (where go.mod lives). Required.
 	Mode           Mode
-	OutputDir      string   // Relative to RootDir. Empty => DefaultOutputDir (Release) or DefaultDevOutputDir (Dev).
-	SiteURL        string   // Enables sitemap.xml and absolute canonical URLs.
+	OutputDir      string // Relative to RootDir. Empty => DefaultOutputDir (Release) or DefaultDevOutputDir (Dev).
+	SiteURL        string // Enables sitemap.xml and absolute canonical URLs.
 	AppName        string
 	StaticAssets   []string // Declared static assets relative to RootDir copied verbatim.
 	ImageQuality   int      // 0 => DefaultImageQuality
@@ -37,26 +63,46 @@ type BuildConfig struct {
 	Log            func(...any)
 }
 
-// Site is the result of a COMPLETE build.
-type Site struct {
+// Output es el resultado de un Build COMPLETO: los artefactos producidos,
+// listos para volcarse a un FS (WriteTo) o servirse desde Artifacts().
+type Output struct {
 	am *AssetMin
 }
 
 // Artifacts returns all produced artifacts.
-func (s *Site) Artifacts() []Artifact {
+func (s *Output) Artifacts() []Artifact {
 	if s == nil || s.am == nil {
 		return nil
 	}
 	return s.am.List()
 }
 
+// An artifact's Path is a URL ("/style.css", "/", "/acerca/") — the URL is
+// the identity. A disk FS gets URLs with a leading slash resolved relative to
+// the FS root; joining them with OutputDir yields the real file
+// ("web/public/especialidades/oftalmologia/index.html").
+func (s *Output) diskPath(art Artifact) string {
+	rel := strings.TrimPrefix(art.Path, "/")
+	if rel == "" {
+		rel = "index.html"
+	}
+	if strings.HasSuffix(rel, "/") {
+		rel = rel + "index.html"
+	}
+	outDir := ""
+	if s.am.Config != nil {
+		outDir = s.am.Config.OutputDir
+	}
+	return filepath.Join(outDir, rel)
+}
+
 // WriteTo writes the built site artifacts to the given FS.
-func (s *Site) WriteTo(fs FS) error {
+func (s *Output) WriteTo(fs FS) error {
 	if s == nil || s.am == nil {
-		return fmt.Err("sitec: WriteTo called on nil Site")
+		return fmt.Err("sitec: WriteTo called on nil Output")
 	}
 	for _, art := range s.Artifacts() {
-		if err := fs.Write(art.Path, art.Content, art.Mediatype); err != nil {
+		if err := fs.Write(s.diskPath(art), art.Content, art.Mediatype); err != nil {
 			return err
 		}
 	}
@@ -64,7 +110,7 @@ func (s *Site) WriteTo(fs FS) error {
 }
 
 // Build executes the entire build pipeline in memory. It does not write to the output disk.
-func Build(cfg BuildConfig) (*Site, error) {
+func Build(cfg BuildConfig) (*Output, error) {
 	if cfg.RootDir == "" {
 		return nil, fmt.Err("sitec: RootDir is required")
 	}
@@ -157,11 +203,58 @@ func Build(cfg BuildConfig) (*Site, error) {
 		return nil, err
 	}
 
-	if err := copyStaticAssets(am, root, cfg.StaticAssets); err != nil {
+	if err := am.PublishImages(); err != nil {
 		return nil, err
 	}
 
-	return &Site{am: am}, nil
+	// Activos estáticos: los de RenderSite() (el proyecto manda) más los de
+	// BuildConfig, unidos sin duplicados en un solo recorrido.
+	var staticAssets []string
+	if am.site != nil {
+		staticAssets = append(staticAssets, am.site.StaticAssets...)
+	}
+	staticAssets = append(staticAssets, cfg.StaticAssets...)
+	staticAssets = dedupeStrings(staticAssets)
+	if err := copyStaticAssets(am, root, staticAssets); err != nil {
+		return nil, err
+	}
+
+	return &Output{am: am}, nil
+}
+
+// LoadStaticAssets copia a la salida los activos declarados por RenderSite().
+// Separado de RouteExtractedAssets porque un activo estático no participa en
+// la cascada de CSS ni en el sprite: solo se copia.
+//
+// Es el camino que usa el demonio de desarrollo: AssetMin conoce el sitio del
+// raíz y puede copiar lo que declara sin pasar por Build(). Build() la usa
+// igualmente, unida a BuildConfig.StaticAssets y sin duplicados.
+func (c *AssetMin) LoadStaticAssets() error {
+	c.mu.Lock()
+	site := c.site
+	rootDir := ""
+	if c.Config != nil {
+		rootDir = c.Config.RootDir
+	}
+	c.mu.Unlock()
+
+	if site == nil {
+		return nil
+	}
+	return copyStaticAssets(c, rootDir, site.StaticAssets)
+}
+
+func dedupeStrings(in []string) []string {
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
 }
 
 // Check validates the project extraction and returns the list of extracted module names.

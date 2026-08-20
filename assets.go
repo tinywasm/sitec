@@ -24,6 +24,7 @@ type Assets struct {
 	Icons       *sprite.Sprite
 	Fonts       font.Declaration // family declared by the module; zero value = none
 	Pages       []html.Page
+	Site        *Site // declarado por RenderSite(); solo el raíz puede; nil = no declarado
 	IsRoot      bool
 	IsFramework bool
 }

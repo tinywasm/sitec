@@ -35,8 +35,8 @@ type Extractor struct {
 
 func New(rootDir string) *Extractor {
 	return &Extractor{
-		rootDir:        rootDir,
-		log:            func(...any) {},
+		rootDir: rootDir,
+		log:     func(...any) {},
 		cache:   newSSRCache(),
 		scanner: newScanner(),
 		// La comprobación de productores va ENCENDIDA por defecto. Un paquete
@@ -47,11 +47,11 @@ func New(rootDir string) *Extractor {
 	}
 }
 
-func (e *Extractor) SetLog(fn func(...any))          { e.log = fn }
-func (e *Extractor) SetFinder(f *modfind.Finder)     { e.finder = f }
-func (e *Extractor) SetGraphLister(l GraphLister)    { e.lister = l }
-func (e *Extractor) SetToolchain(t Toolchain)        { e.toolchain = t }
-func (e *Extractor) SetWasmBuilder(wb WasmBuilder)    { e.wasmBuilder = wb }
+func (e *Extractor) SetLog(fn func(...any))        { e.log = fn }
+func (e *Extractor) SetFinder(f *modfind.Finder)   { e.finder = f }
+func (e *Extractor) SetGraphLister(l GraphLister)  { e.lister = l }
+func (e *Extractor) SetToolchain(t Toolchain)      { e.toolchain = t }
+func (e *Extractor) SetWasmBuilder(wb WasmBuilder) { e.wasmBuilder = wb }
 
 func (e *Extractor) Finder() *modfind.Finder {
 	e.mu.Lock()
@@ -172,6 +172,7 @@ func (e *Extractor) ExtractModule(moduleDir string) (*Assets, error) {
 		Icons:       output.Icons,
 		Fonts:       output.Fonts,
 		Pages:       output.Pages,
+		Site:        output.Site,
 		IsRoot:      target.path == rootModule.path,
 		IsFramework: isFrameworkModule(target.path),
 	}
@@ -219,6 +220,7 @@ func (e *Extractor) ExtractAll() ([]*Assets, error) {
 				Icons:       output.Icons,
 				Fonts:       output.Fonts,
 				Pages:       output.Pages,
+				Site:        output.Site,
 				IsRoot:      m.path == rootModule.path,
 				IsFramework: isFrameworkModule(m.path),
 			}

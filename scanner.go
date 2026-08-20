@@ -21,7 +21,7 @@ type producerDecl struct {
 
 type fileFeatures struct {
 	mtime     time.Time
-	pkgName   string          // f.Name.Name del archivo parseado
+	pkgName   string // f.Name.Name del archivo parseado
 	imports   map[string]bool
 	producers []producerDecl
 }
@@ -98,6 +98,7 @@ func (s *scanner) scanFile(path string) (fileFeatures, error) {
 		"IconSvg":     true,
 		"Fonts":       true,
 		"RenderPages": true,
+		"RenderSite":  true,
 	}
 
 	for _, decl := range f.Decls {

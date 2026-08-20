@@ -11,7 +11,6 @@ import (
 
 var reLayer = regexp.MustCompile(`@layer\s+([^;{]+);`)
 
-
 // MergeResultsFor gathers the module's own assets plus those of every package under
 // it, in a stable order so the emitted CSS does not shuffle between runs.
 func MergeResultsFor(modulePath string, results map[string]CollectorOutput) (CollectorOutput, bool, error) {
@@ -48,6 +47,7 @@ func MergeResultsFor(modulePath string, results map[string]CollectorOutput) (Col
 	var merged CollectorOutput
 	merged.Icons = sprite.NewSprite()
 	var fontsFrom string
+	var siteFrom string
 
 	for _, p := range paths {
 		out := results[p]
@@ -73,11 +73,18 @@ func MergeResultsFor(modulePath string, results map[string]CollectorOutput) (Col
 			merged.Fonts = out.Fonts
 			fontsFrom = p
 		}
+		if out.Site != nil {
+			if siteFrom != "" {
+				return CollectorOutput{}, false, fmt.Err("ssr: multiple RenderSite() declarations:",
+					siteFrom, "and", p, "— only one package per module may declare RenderSite()")
+			}
+			merged.Site = out.Site
+			siteFrom = p
+		}
 	}
 
 	return merged, true, nil
 }
-
 
 type layerInfo struct {
 	pkgPath   string

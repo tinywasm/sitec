@@ -69,6 +69,11 @@ func (w *Widget) IconSvg() *sprite.Sprite {
 `)
 
 		// App module with RenderPages
+		wcwd, err := os.Getwd()
+		if err != nil {
+			t.Fatal(err)
+		}
+		repoRoot := filepath.Dir(wcwd)
 		write(filepath.Join(appDir, "go.mod"), `module example.com/app
 
 go 1.25.2
@@ -77,10 +82,13 @@ require (
 	example.com/comp v0.0.0
 	github.com/tinywasm/css v0.4.15
 	github.com/tinywasm/html v0.0.17
+	github.com/tinywasm/sitec v0.0.0
 	github.com/tinywasm/svg v0.1.21
 )
 
 replace example.com/comp => ../comp
+
+replace github.com/tinywasm/sitec => `+repoRoot+`
 `)
 		write(filepath.Join(appDir, "app.go"), `package app
 
@@ -103,6 +111,23 @@ func (p *PageProducer) RenderPages() []html.Page {
 	}
 }
 `)
+
+		// El raíz declara RenderSite(): el proyecto es un sitio estático con
+		// URL pública y un activo de marca que sale verbatim a la salida.
+		write(filepath.Join(appDir, "site.go"), `//go:build !wasm
+
+package app
+
+import "github.com/tinywasm/sitec"
+
+func (p *PageProducer) RenderSite() *sitec.Site {
+	return &sitec.Site{
+		URL:          "https://acme.example",
+		StaticAssets: []string{"escudo-marca.svg"},
+	}
+}
+`)
+		write(filepath.Join(appDir, "escudo-marca.svg"), `<svg xmlns="http://www.w3.org/2000/svg"><path id="escudo"/></svg>`)
 
 		cmdDep := exec.Command("go", "mod", "tidy")
 		cmdDep.Dir = depDir
@@ -131,6 +156,8 @@ func (p *PageProducer) RenderPages() []html.Page {
 
 		var cssContent string
 		var htmlContent string
+		var sitemapContent string
+		var shieldContent string
 
 		for _, a := range artifacts {
 			if strings.HasSuffix(a.Path, "style.css") {
@@ -138,6 +165,12 @@ func (p *PageProducer) RenderPages() []html.Page {
 			}
 			if a.Mediatype == "text/html" {
 				htmlContent = string(a.Content)
+			}
+			if a.Path == "/sitemap.xml" {
+				sitemapContent = string(a.Content)
+			}
+			if a.Path == "/escudo-marca.svg" {
+				shieldContent = string(a.Content)
 			}
 		}
 
@@ -155,6 +188,16 @@ func (p *PageProducer) RenderPages() []html.Page {
 		// 3. Emitted HTML contains id="fixture-icon"
 		if !strings.Contains(htmlContent, `id="fixture-icon"`) {
 			t.Errorf("expected HTML to contain id=\"fixture-icon\", got:\n%s", htmlContent)
+		}
+
+		// 4. RenderSite() URL emite sitemap.xml
+		if !strings.Contains(sitemapContent, "https://acme.example") {
+			t.Errorf("expected sitemap.xml to contain the RenderSite() URL, got:\n%s", sitemapContent)
+		}
+
+		// 5. El activo estático declarado por RenderSite() sale verbatim
+		if shieldContent != `<svg xmlns="http://www.w3.org/2000/svg"><path id="escudo"/></svg>` {
+			t.Errorf("expected escudo-marca.svg copied verbatim, got:\n%s", shieldContent)
 		}
 	})
 

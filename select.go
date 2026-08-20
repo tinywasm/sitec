@@ -160,6 +160,8 @@ func modulesToAliases(modules []module, scanner *scanner, assetLibraries []strin
 					rf.HasFonts = true
 				case "RenderPages":
 					rf.HasPages = true
+				case "RenderSite":
+					rf.HasSite = true
 				}
 			}
 

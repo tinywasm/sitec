@@ -21,6 +21,7 @@ type CollectorOutput struct {
 	Icons   *sprite.Sprite   `json:"icons"`
 	Fonts   font.Declaration `json:"fonts"`
 	Pages   []html.Page      `json:"pages"`
+	Site    *Site            `json:"site"`
 }
 
 // fontsWire is the JSON shape for a Declaration (unexported fields cannot marshal).
@@ -49,6 +50,7 @@ type receiverFeature struct {
 	HasIcons  bool
 	HasFonts  bool
 	HasPages  bool
+	HasSite   bool
 }
 
 type moduleAlias struct {
@@ -90,6 +92,7 @@ func invokeSSRExtractorOnce(projectRoot string, startDir string, modules []modul
 		Icons   []json.RawMessage `json:"icons"`
 		Fonts   fontsWire         `json:"fonts"`
 		Pages   []html.Page       `json:"pages"`
+		Site    *Site             `json:"site"`
 	}
 
 	// Parse the JSON output
@@ -130,6 +133,7 @@ func invokeSSRExtractorOnce(projectRoot string, startDir string, modules []modul
 			Icons:   mergedSprite,
 			Fonts:   fonts,
 			Pages:   raw.Pages,
+			Site:    raw.Site,
 		}
 	}
 
@@ -162,6 +166,11 @@ type fontsWire struct {
 	Dir    string ` + "`json:\"dir\"`" + `
 }
 
+type siteWire struct {
+	URL          string   ` + "`json:\"url\"`" + `
+	StaticAssets []string ` + "`json:\"static_assets\"`" + `
+}
+
 type ssr struct {
 	Root    string      ` + "`json:\"root\"`" + `
 	Render  string      ` + "`json:\"render\"`" + `
@@ -169,6 +178,7 @@ type ssr struct {
 	Scripts []script    ` + "`json:\"scripts\"`" + `
 	Icons   []any       ` + "`json:\"icons\"`" + `
 	Fonts   fontsWire   ` + "`json:\"fonts\"`" + `
+	Site    *siteWire   ` + "`json:\"site\"`" + `
 	{{if .HasAnyPages}}Pages []html.Page ` + "`json:\"pages\"`" + `{{end}}
 }
 
@@ -213,6 +223,12 @@ func main() {
 			}
 			{{end}}
 			{{if .HasPages}}s.Pages = append(s.Pages, inst.RenderPages()...){{end}}
+			{{if .HasSite}}
+			{
+				st := inst.RenderSite()
+				s.Site = &siteWire{URL: st.URL, StaticAssets: st.StaticAssets}
+			}
+			{{end}}
 			{{else}}
 			{{if .HasRoot}}s.Root += {{$alias}}.RootCSS().String(){{end}}
 			{{if .HasRender}}s.Render += {{$alias}}.RenderCSS().String(){{end}}
@@ -230,6 +246,12 @@ func main() {
 			}
 			{{end}}
 			{{if .HasPages}}s.Pages = append(s.Pages, {{$alias}}.RenderPages()...){{end}}
+			{{if .HasSite}}
+			{
+				st := {{$alias}}.RenderSite()
+				s.Site = &siteWire{URL: st.URL, StaticAssets: st.StaticAssets}
+			}
+			{{end}}
 			{{end}}
 		}()
 		{{end}}
@@ -280,4 +302,3 @@ func main() {
 
 	return tmpl.Execute(f, data)
 }
-
