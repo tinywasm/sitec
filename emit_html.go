@@ -4,14 +4,8 @@ import "strings"
 
 type htmlHandler struct {
 	*asset
-	cssURL     string
-	jsURL      string
-	faviconURL string
-}
-
-// generateFaviconLink returns HTML tag for linking the favicon
-func (h *htmlHandler) generateFaviconLink() []byte {
-	return []byte(`<link rel="icon" type="image/svg+xml" href="` + h.faviconURL + `">`)
+	cssURL string
+	jsURL  string
 }
 
 // generateStylesheetLink returns HTML tag for linking a CSS stylesheet
@@ -29,12 +23,15 @@ func NewHtmlHandler(ac *Config, outputName, cssURL, jsURL, faviconURL string) *a
 	af := newAssetFile(outputName, "text/html", ac, nil)
 
 	hh := &htmlHandler{
-		asset:      af,
-		cssURL:     cssURL,
-		jsURL:      jsURL,
-		faviconURL: faviconURL,
+		asset:  af,
+		cssURL: cssURL,
+		jsURL:  jsURL,
 	}
-	//  default marcador de inicio index HTML
+	// faviconURL is kept for backwards compatibility but ignored; favicon links are now
+	// emitted dynamically via AssetMin.updateHtmlFaviconLinks based on derived files.
+	_ = faviconURL
+	//  default marcador de inicio index HTML — initially without favicon links;
+	//  AssetMin.updateHtmlFaviconLinks will rewrite this after favicon derivation.
 	af.contentOpen = append(af.contentOpen, &ContentFile{
 		Path: "index-open.html",
 		Content: []byte(`<!doctype html>
@@ -43,7 +40,6 @@ func NewHtmlHandler(ac *Config, outputName, cssURL, jsURL, faviconURL string) *a
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 	<title></title>
-	` + string(hh.generateFaviconLink()) + `
 	` + string(hh.generateStylesheetLink()) + `
 </head>
 <body>`),

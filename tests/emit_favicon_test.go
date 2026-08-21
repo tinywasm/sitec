@@ -3,9 +3,9 @@
 package sitec_test
 
 import (
+	"github.com/tinywasm/router/mock"
 	"github.com/tinywasm/sitec"
 	"github.com/tinywasm/sitec/serve"
-	"github.com/tinywasm/router/mock"
 	"os"
 	"path/filepath"
 	"strings"

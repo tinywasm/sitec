@@ -11,10 +11,10 @@ import (
 // for both problematic icons (help and catalog).
 func TestIconSpriteStructure(t *testing.T) {
 	ac := &sitec.Config{
-		OutputDir:          t.TempDir(),
-		AppName:            "TestSprite",
-		AssetsURLPrefix:    "/assets",
-		DevMode:            true,
+		OutputDir:       t.TempDir(),
+		AppName:         "TestSprite",
+		AssetsURLPrefix: "/assets",
+		DevMode:         true,
 	}
 	am := sitec.NewAssetMin(ac)
 

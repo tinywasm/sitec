@@ -117,7 +117,10 @@ func (c *AssetMin) GetSVGURLPath() string {
 
 // GetFaviconURLPath returns the URL path for the favicon file.
 func (c *AssetMin) GetFaviconURLPath() string {
-	return c.faviconSvgHandler.GetURLPath()
+	if url := c.getFirstFaviconURL(); url != "" {
+		return url
+	}
+	return ""
 }
 
 // containsContent is a helper on the asset struct to check all its content sections.

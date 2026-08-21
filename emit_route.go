@@ -105,7 +105,7 @@ func (c *AssetMin) emitPages(a *Assets) error {
 			doc.JSURL = c.mainJsHandler.GetURLPath()
 		}
 		if doc.FaviconURL == "" {
-			doc.FaviconURL = c.faviconSvgHandler.GetURLPath()
+			doc.FaviconURL = c.getFirstFaviconURL()
 		}
 		if c.SiteURL != "" && doc.Canonical != "" && !isAbsoluteURL(doc.Canonical) {
 			doc.Canonical = resolveAbsoluteURL(c.SiteURL, doc.Canonical)

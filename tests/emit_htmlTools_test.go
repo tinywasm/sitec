@@ -228,7 +228,6 @@ func TestDefaultHTMLContainsViewportFitCover(t *testing.T) {
 	}
 }
 
-
 func extractViewportContent(src string) string {
 	const marker = `name="viewport" content="`
 	i := strings.Index(src, marker)

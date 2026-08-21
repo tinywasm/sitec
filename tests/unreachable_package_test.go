@@ -215,7 +215,7 @@ func TestAnchor_StartedSubdirDoesNotLeakSiblingPackages(t *testing.T) {
 	base := t.TempDir()
 	appDir := filepath.Join(base, "app")
 	writeTree(t, appDir, map[string]string{
-		"go.mod": "module example.com/app\n\ngo 1.24\n",
+		"go.mod":  "module example.com/app\n\ngo 1.24\n",
 		"main.go": "package main\n\nfunc main() {}\n",
 		"alpha/css.go": `package alpha
 ` + stylesheetHelper + `

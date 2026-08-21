@@ -162,6 +162,8 @@ func modulesToAliases(modules []module, scanner *scanner, assetLibraries []strin
 					rf.HasPages = true
 				case "RenderSite":
 					rf.HasSite = true
+				case "Favicon":
+					rf.HasFavicon = true
 				}
 			}
 

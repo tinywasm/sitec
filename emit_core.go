@@ -18,6 +18,7 @@ import (
 	twcss "github.com/tinywasm/css"
 	"github.com/tinywasm/fmt"
 	"github.com/tinywasm/font"
+	"github.com/tinywasm/image/favicon"
 	imgmin "github.com/tinywasm/image/min"
 	"github.com/tinywasm/svg/sprite"
 )
@@ -29,6 +30,8 @@ const (
 	msgSiteWithoutPages   = "sitec: el proyecto declara RenderSite() (es un sitio estático) pero ningún módulo declara RenderPages(): la salida sería el shell de una aplicación, no un sitio"
 	msgPagesWithoutSite   = "sitec: aviso: el proyecto declara RenderPages() pero no RenderSite(): la salida no tendrá sitemap ni activos estáticos"
 	msgStaticAbsentPrefix = "sitec: activo estático declarado y ausente: "
+	msgFaviconNonRoot     = "sitec: solo el modulo raiz puede declarar Favicon(); lo declara %s"
+	msgNoFavicon          = "sitec: el proyecto no declara Favicon(); las paginas saldran sin icono"
 )
 
 type AssetMin struct {
@@ -59,6 +62,8 @@ type AssetMin struct {
 	fontsMu             sync.RWMutex
 	fonts               font.Declaration // root module only; zero-value = none
 	site                *Site            // declarado por el raíz via RenderSite(); nil = el proyecto es una aplicación
+	faviconFiles        []favicon.File
+	faviconMu           sync.RWMutex
 	fs                  FS
 	wasmFilename        string
 	wasmRuntime         string
@@ -173,6 +178,78 @@ func (c *AssetMin) RouteExtractedAssets(all []*Assets) error {
 			return fmt.Err(fmt.Sprintf(msgTwoRootSites, siteOwner, a.ModuleName))
 		}
 		siteOwner = a.ModuleName
+	}
+
+	// 0.5 Favicon(): solo el raíz puede declarar. Derivar y escribir el juego completo.
+	var faviconOwner string
+	var faviconSrc *favicon.Source
+	for _, a := range all {
+		if a == nil || a.Favicon == nil {
+			continue
+		}
+		if !a.IsRoot {
+			return fmt.Err(fmt.Sprintf(msgFaviconNonRoot, a.ModuleName))
+		}
+		if faviconOwner != "" {
+			return fmt.Err(fmt.Sprintf(msgFaviconNonRoot, a.ModuleName))
+		}
+		faviconOwner = a.ModuleName
+		faviconSrc = &favicon.Source{Raster: a.Favicon.Raster, SVG: a.Favicon.SVG}
+	}
+	if faviconOwner != "" {
+		files, err := favicon.Derive(*faviconSrc)
+		if err != nil {
+			return err
+		}
+		c.faviconMu.Lock()
+		c.faviconFiles = files
+		c.faviconMu.Unlock()
+		for _, f := range files {
+			urlKey := path.Join("/", f.Name)
+			c.directArtifacts = append(c.directArtifacts, Artifact{Path: urlKey, Mediatype: f.Mediatype, Content: f.Content})
+			if c.fs != nil {
+				outputDir := ""
+				if c.Config != nil {
+					outputDir = c.Config.OutputDir
+				}
+				fullPath := f.Name
+				if outputDir != "" && !filepath.IsAbs(f.Name) {
+					fullPath = filepath.Join(outputDir, f.Name)
+				}
+				if err := c.fs.Write(fullPath, f.Content, f.Mediatype); err != nil {
+					return err
+				}
+			}
+		}
+		delete(c.allAssets, c.faviconSvgHandler.outputPath)
+		c.updateHtmlFaviconLinks()
+	} else {
+		var faviconPath string
+		if c.Config != nil && c.Config.OutputDir != "" {
+			if filepath.IsAbs(c.Config.OutputDir) {
+				faviconPath = filepath.Join(c.Config.OutputDir, "favicon.svg")
+			} else if c.Config.RootDir != "" {
+				faviconPath = filepath.Join(c.Config.RootDir, c.Config.OutputDir, "favicon.svg")
+			} else {
+				faviconPath = filepath.Join(c.Config.OutputDir, "favicon.svg")
+			}
+		} else {
+			faviconPath = "favicon.svg"
+		}
+		if info, err := os.Stat(faviconPath); err == nil && info.Size() > 0 {
+			c.faviconMu.Lock()
+			c.faviconFiles = []favicon.File{{Name: "favicon.svg", Mediatype: "image/svg+xml", Rel: "icon", Type: "image/svg+xml"}}
+			c.faviconMu.Unlock()
+			delete(c.allAssets, c.faviconSvgHandler.outputPath)
+			c.updateHtmlFaviconLinks()
+		} else {
+			c.faviconMu.Lock()
+			c.faviconFiles = nil
+			c.faviconMu.Unlock()
+			delete(c.allAssets, c.faviconSvgHandler.outputPath)
+			c.updateHtmlFaviconLinks()
+			c.Logger(msgNoFavicon)
+		}
 	}
 
 	// 1. Check page collisions across modules

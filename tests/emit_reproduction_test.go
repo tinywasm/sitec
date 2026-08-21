@@ -3,9 +3,9 @@
 package sitec_test
 
 import (
-	"strings"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 

@@ -18,10 +18,10 @@ import (
 func TestReproCorruption(t *testing.T) {
 	// Setup environment
 	ac := &sitec.Config{
-		OutputDir:          t.TempDir(),
-		AppName:            "TestApp",
-		AssetsURLPrefix:    "/assets",
-		DevMode:            true, // Disable cache for more frequent regeneration
+		OutputDir:       t.TempDir(),
+		AppName:         "TestApp",
+		AssetsURLPrefix: "/assets",
+		DevMode:         true, // Disable cache for more frequent regeneration
 	}
 	am := sitec.NewAssetMin(ac)
 

@@ -1,297 +1,226 @@
 ---
-PLAN: "feat: el proyecto declara qué clase de sitio es — RenderSite()"
+PLAN: "feat: un proyecto declara su icono y el shell emite el juego completo"
+TAG: v0.2.0
 EXECUTOR: jules
 REVIEWER: none
 ---
 
 > Plan autocontenido: todo lo necesario para ejecutarlo está aquí.
 > Se despacha con el flujo CodeJob. Ver skill: agents-workflow.
-> Reglas del repo: `AGENTS.md` en la raíz — léelo antes de tocar nada
-> (los tests van TODOS en `tests/`).
+> Reglas del repo: [`AGENTS.md`](../AGENTS.md) en la raíz — léelo antes de tocar
+> nada (los tests van TODOS en `tests/`).
 
-# Plan — `RenderSite()`: que el proyecto declare, y dejar de obligarle a
-# escribirse su propio build
+# Plan — el favicon: hoy se enlaza un archivo vacío
 
-## 1. El problema, con el caso real que lo destapó
+**Requisito previo**, porque este entorno no lo trae instalado:
 
-`acme/acme-web` es un sitio estático construido
-con `sitec`. Para poder publicarlo tuvo que escribirse **su propio driver de
-build**, `tools/build/main.go`, de 130 líneas, que hace exactamente lo mismo que
-`sitec build` **más dos cosas que `sitec` no le deja declarar**:
-
-1. **`SiteURL`** — sin él, `sitec` no emite `sitemap.xml` (`emit_core.go`: "Emit
-   sitemap.xml if SiteURL is set"). El campo existe en `Config`, pero el CLI
-   `sitec build` (`cmd/sitec/main.go:71`) no lo pasa y el proyecto no tiene
-   dónde ponerlo.
-2. **Los activos estáticos** — los SVG de marca (`logo-completo.svg`,
-   `logo-movil.svg`, `escudo-marca.png`). `RenderImages()` solo cubre
-   rásters, que procesa `image/min`. El proyecto acabó copiándolos con una
-   función a mano, `copyBrandPictures`.
-
-`BuildConfig.StaticAssets []string` **ya existe** (`build.go:34`) y hace justo
-eso… pero no hay forma de llegar a él: ni el CLI lo expone ni el proyecto puede
-declararlo.
-
-Consecuencia medida en desarrollo:
-
-```
-404 GET http://localhost:8080/img/logo-completo.svg
+```bash
+go install github.com/tinywasm/devflow/cmd/gotest@latest
 ```
 
-El logo de la marca no existe en el entorno de desarrollo, porque el demonio no
-corre `tools/build`. El proyecto tiene **dos** definiciones distintas de sí
-mismo y solo una se usa en cada contexto.
+**Requisito previo de dependencia:** este plan usa
+`github.com/tinywasm/image/favicon`, el paquete que deriva el juego de iconos de
+un logo cuadrado. Empieza con:
 
-Esto es literalmente el caso descrito en `docs/CONSTRUCTION_HARNESS.md`: *"un
-hueco de API siempre aflora en la hoja, donde el agente no tiene autoridad para
-publicar aguas arriba — así que lo parchea localmente"*. Se cierra aquí, en la
-librería que es dueña del concepto.
+```bash
+go get github.com/tinywasm/image@latest
+```
 
-## 2. Lo que se construye
+Si ese paquete todavía no existe en la versión publicada, **detente y dilo en el
+PR**: este plan no se puede completar sin él y no hay que reimplementarlo aquí.
 
-Un productor nuevo, hermano de `RenderCSS` / `RenderImages` / `RenderPages`, que
-el módulo **raíz** declara para describir su sitio:
+## 1. El problema, medido
+
+`sitec` trata `favicon.svg` como un artefacto **suyo**: lo declara en
+`emit_core.go` (`NewFaviconSvgHandler`), lo reescribe en cada build, y el shell
+enlaza esa ruta desde `emit_html.go`:
 
 ```go
-//go:build !wasm
-
-package site
-
-import "github.com/tinywasm/sitec"
-
-func RenderSite() sitec.Site {
-	return sitec.Site{
-		URL: "https://acme.example",
-		StaticAssets: []string{
-			"img/logo-completo.svg",
-			"img/logo-movil.svg",
-			"img/escudo-marca.png",
-		},
-	}
+func (h *htmlHandler) generateFaviconLink() []byte {
+	return []byte(`<link rel="icon" type="image/svg+xml" href="` + h.faviconURL + `">`)
 }
 ```
 
-Declararla tiene un segundo significado, y es el importante:
+Nadie llena ese archivo. La comprobación, hecha sobre un proyecto real
+(`veltylabs/misitio`):
 
-> **Un módulo raíz que declara `RenderSite()` es un sitio estático.**
-> Su entregable es el directorio de salida y su `index.html` lo manda
-> `RenderPages()`. Sin `RenderSite()`, el proyecto es una aplicación y el
-> `index.html` es el shell (`<div id="app">` + `main.js`).
+1. Escribir un `web/public/favicon.svg` válido a mano.
+2. `goflare build`.
+3. El archivo queda en **0 bytes**.
 
-Hoy esa diferencia se adivina por accidente: `AssetMin` construye **siempre** el
-shell (`emit_core.go:310`) y luego lo **sustituye** si alguien declara páginas
-(`emit_route.go:103`). Quién gana depende de en qué momento se pregunte.
+Resultado: **cada página que emite `sitec` enlaza un archivo vacío**. La pestaña
+muestra el icono por defecto del navegador y el proyecto no tiene forma de
+arreglarlo — los ocho nombres de productor que este repo reconoce (`RootCSS`,
+`RenderCSS`, `RenderHTML`, `RenderJS`, `IconSvg`, `Fonts`, `RenderPages`,
+`RenderSite`) **no incluyen ninguno para el icono**.
 
-## 3. El tipo
+Un proyecto declara su CSS en Go y no puede declarar su icono. Eso es lo que este
+plan corrige.
 
-En `build.go`, junto a `BuildConfig`:
+## 2. Qué se añade
+
+Un **noveno productor**, `Favicon()`, con la misma mecánica que ya usa
+`RenderSite()`: el recolector generado lee los campos del valor devuelto y los
+serializa a JSON en su propia estructura *wire*, así que el proyecto puede
+devolver un tipo de `tinywasm/image/favicon` sin que el recolector lo importe.
+
+Lo que declara un proyecto, en su archivo `!wasm` de configuración:
 
 ```go
-// Site es lo que un módulo RAÍZ declara sobre el sitio que produce.
-//
-// Declararla convierte al proyecto en un sitio estático: el entregable es el
-// directorio de salida y RenderPages() es el dueño del index.html. Un proyecto
-// sin RenderSite() es una aplicación y su index.html es el shell de arranque
-// del WASM.
-type Site struct {
-	// URL es la URL pública del sitio. Habilita sitemap.xml y las URL
-	// canónicas absolutas. Vacía ⇒ no se emite sitemap.
-	URL string
+//go:embed logo.png
+var logo []byte
 
-	// StaticAssets son rutas relativas a la raíz del módulo que se copian
-	// verbatim a la salida. Para lo que NO pasa por el pipeline de imágenes:
-	// SVG de marca, PDF, robots.txt.
-	//
-	// Un archivo o directorio declarado y ausente es un ERROR de build, no un
-	// aviso: un logo que falta en producción se descubre demasiado tarde.
-	StaticAssets []string
+func (b *Brand) Favicon() favicon.Source {
+	return favicon.Source{Raster: logo}
 }
 ```
 
-`BuildConfig.SiteURL` y `BuildConfig.StaticAssets` **se quedan** (son la vía del
-llamador programático, y `Build` los sigue respetando). Regla de precedencia,
-documentada en el doc comment de `BuildConfig`:
+### 2.1 — Reconocer el productor
 
-> Lo que declara `RenderSite()` **manda** sobre lo que traiga `BuildConfig`.
-> El proyecto es la autoridad sobre sí mismo; `BuildConfig` es el afinado del
-> llamador. Cuando ambos traen valor y difieren, se registra un aviso con los
-> dos valores y se aplica el del proyecto.
+- `scanner.go`: agregar `"Favicon": true` a la lista de nombres.
+- `select.go`: `case "Favicon": rf.HasFavicon = true`.
+- `extract.go`: `HasFavicon bool` en `receiverFeature`, y en `CollectorOutput`:
 
-## 4. Etapas
+  ```go
+  Favicon *faviconWire `json:"favicon"`
 
-### Etapa 1 · Extracción
+  type faviconWire struct {
+      Raster []byte `json:"raster"`
+      SVG    []byte `json:"svg"`
+  }
+  ```
 
-`extract.go` genera un `main.go` temporal que importa cada módulo y serializa lo
-que declaran (`CollectorOutput`). Hay que añadir el nuevo productor:
+  `encoding/json` codifica `[]byte` en base64 sin ayuda: no inventes un
+  transporte.
 
-- `receiverFeature`: campo nuevo `HasSite bool`.
-- El escáner detecta `func RenderSite() sitec.Site` igual que detecta
-  `RenderPages` (mismo mecanismo, mismo archivo).
-- `CollectorOutput`: campo nuevo `Site *Site` (puntero: distinguir "no
-  declarada" de "declarada vacía" es el corazón de este plan).
-- `Assets`: campo nuevo `Site *Site`, propagado desde `CollectorOutput`.
+- `extract.go`, en **las dos ramas** de la plantilla —la de receptor con nombre y
+  la de paquete suelto—, junto al bloque de `HasSite`:
 
-**El archivo fuente convencional es `site.go`.** Añádelo a la lista de archivos
-de assets que dispara recarga en caliente si el repo la tiene; `tinywasm/app`
-tiene la suya (`ssr_watcher.go`, `ssrTextAssetFiles`) y su plan la actualiza.
+  ```go
+  {{if .HasFavicon}}
+  {
+      f := inst.Favicon()
+      s.Favicon = &faviconWire{Raster: f.Raster, SVG: f.SVG}
+  }
+  {{end}}
+  ```
 
-### Etapa 2 · Solo el raíz puede declararla
+  **Las dos ramas.** Olvidar una deja el productor funcionando en la mitad de los
+  proyectos y silencioso en la otra, que es el peor resultado posible.
 
-En `RouteExtractedAssets` (`emit_core.go:146`), con las mismas reglas que ya
-aplican a `Fonts` y `RootCSS`:
+### 2.2 — Sólo el módulo raíz puede declarar icono
 
-```go
-// mensajes exactos, como constantes con nombre
-"sitec: el módulo %s declara RenderSite() pero no es el proyecto raíz — solo el raíz describe el sitio; se ignora"
-"sitec: RenderSite() declarada por dos módulos raíz: %s y %s"
-```
-
-Un módulo no raíz que la declare: **aviso ruidoso e ignorada**, nunca silencio.
-
-### Etapa 3 · Aplicar `URL`
-
-Donde hoy se lee `c.SiteURL` (emisión de `sitemap.xml` y resolución de
-canónicas en `emit_route.go:emitPages`), el valor efectivo pasa a ser:
-`Site.URL` si el raíz la declaró; si no, `Config.SiteURL`.
-
-Resuélvelo **una sola vez**, al enrutar, en un campo ya existente — nada de un
-`if` repetido en cada punto de uso.
-
-### Etapa 4 · Aplicar `StaticAssets`
-
-`copyStaticAssets` ya existe (`build.go:186`) y hace exactamente lo que hace
-falta: `os.Stat` → error si falta, `filepath.Walk` para directorios, `am.Write`
-con el mediatype detectado.
-
-- Llamarla también con los activos que declara `RenderSite()`, unidos a los de
-  `BuildConfig.StaticAssets` (sin duplicados).
-- Que sea alcanzable desde el camino de `AssetMin` que usa el demonio, no solo
-  desde `Build()`. Método exportado nuevo en `AssetMin`:
-
-```go
-// LoadStaticAssets copia a la salida los activos declarados por RenderSite().
-// Separado de RouteExtractedAssets porque un activo estático no participa en la
-// cascada de CSS ni en el sprite: solo se copia.
-func (c *AssetMin) LoadStaticAssets() error
-```
-
-Mensaje de error exacto cuando falta un archivo declarado (ya existe, resérvalo
-tal cual): `sitec: activo estático declarado y ausente:`
-
-### Etapa 5 · El CLI deja de estar cojo
-
-`cmd/sitec/main.go` no necesita banderas nuevas: `Build` ya lee `RenderSite()`
-del proyecto. Verifica que `sitec build` en un proyecto con `RenderSite()`
-emita `sitemap.xml` y copie los activos **sin pasar ni un flag**.
-
-Mantén `cmd/` fino: cero lógica nueva ahí. Si hace falta decidir algo, se decide
-en la librería.
-
-### Etapa 6 · Diagnóstico del dueño de `index.html`
-
-Hoy, si nadie declara páginas, la salida es el shell — y para un sitio estático
-eso significa **publicar una página en blanco** sin un solo error.
-
-Con `RenderSite()` la intención ya es explícita, así que se puede exigir:
+Si un módulo que **no** es la raíz declara `Favicon()`, el build **falla**
+nombrándolo:
 
 ```
-sitec: el proyecto declara RenderSite() (es un sitio estático) pero ningún módulo declara RenderPages(): la salida sería el shell de una aplicación, no un sitio
+sitec: solo el modulo raiz puede declarar Favicon(); lo declara github.com/acme/widget
 ```
 
-Que sea **error de build**, no aviso. Regla nueva a documentar en
-`docs/ARCHITECTURE.md`:
+Un icono es la identidad del sitio, no de una librería. Dos librerías con icono
+serían dos marcas compitiendo por la misma pestaña, y elegir una en silencio es
+la clase de decisión que nadie quiere descubrir en producción.
 
-| El raíz declara | index.html lo manda | Entregable |
-|---|---|---|
-| `RenderSite()` + `RenderPages()` | las páginas SSR | el directorio de salida, versionable |
-| ni una ni otra | el shell (`#app` + `main.js`) | lo arma quien despliega |
-| `RenderSite()` sin `RenderPages()` | **error de build** | — |
-| `RenderPages()` sin `RenderSite()` | las páginas SSR, sin sitemap ni activos estáticos | aviso: falta `RenderSite()` |
+### 2.3 — Emitir el juego
 
-## 5. Tests — todos en `tests/`
+En `emit_core.go`, cuando el recolector trajo un `Favicon`:
 
-| Archivo | Qué prueba |
+1. `favicon.Derive(favicon.Source{...})` → `[]favicon.File`.
+2. Cada archivo se escribe con `am.Write(f.Name, f.Content, f.Mediatype)`, el
+   mismo camino que ya usa el binario WASM.
+3. Si `Derive` devuelve error —logo no cuadrado, demasiado chico— **el build
+   falla con ese error tal cual**. Ya viene redactado para que lo lea una
+   persona.
+
+En `emit_html.go`, el `<head>` deja de emitir un enlace fijo y emite **uno por
+cada archivo que traiga `Rel`**, en el orden en que vienen:
+
+```html
+<link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+```
+
+`favicon.ico` se escribe y **no se enlaza**: los navegadores viejos lo piden
+solos a la raíz. Los atributos `type` y `sizes` se omiten cuando el archivo
+viene con esos campos vacíos — nada de `sizes=""` en la salida.
+
+### 2.4 — Cuando el proyecto no declara icono
+
+Tres ramas, y ninguna escribe un archivo vacío:
+
+| Situación | Qué hace |
 |---|---|
-| `tests/site_extract_test.go` | `RenderSite()` en el raíz llega a `Assets.Site` |
-| `tests/site_solo_raiz_test.go` | declarada por un módulo no raíz → avisada e ignorada |
-| `tests/site_url_test.go` | `Site.URL` emite `sitemap.xml` sin tocar `BuildConfig` |
-| `tests/site_url_precedencia_test.go` | `Site.URL` gana a `BuildConfig.SiteURL` y avisa |
-| `tests/site_static_assets_test.go` | los archivos declarados aparecen en la salida con su mediatype |
-| `tests/site_static_ausente_test.go` | un activo declarado y ausente es error, no aviso |
-| `tests/site_sin_pages_test.go` | `RenderSite()` sin `RenderPages()` → error de build |
+| Declara `Favicon()` | §2.3 |
+| No declara, pero existe un `favicon.svg` real en la salida | lo deja intacto y emite **sólo** ese enlace — es el camino del demonio de desarrollo, que observa ese archivo en disco (`emit_events.go`) |
+| No declara y no hay archivo | **no escribe nada y no emite ningún enlace**, y registra por el log: `sitec: el proyecto no declara Favicon(); las paginas saldran sin icono` |
 
-**Y el test con forma de consumidor** (la regla que mantiene honesto el arnés —
-`docs/CONSTRUCTION_HARNESS.md`): un proyecto de prueba completo en `tests/` con
-`site.go`, `css.go`, `page.go` y un SVG de marca, del que se hace
-`Build(ModeRelease)` y se comprueba que la salida contiene el SVG, el
-`sitemap.xml` y el `index.html` con el markup de la página. Si escribir ese test
-resulta incómodo, la API es incómoda: eso es el hallazgo, no el test.
+**No falles el build por un icono ausente.** Es tentador —este repo predica el
+fallo ruidoso— y sería desproporcionado: rompería a todos los proyectos del
+ecosistema por un archivo decorativo. Lo ruidoso aquí es el aviso, y sobre todo
+**dejar de enlazar lo que no existe**: el defecto de hoy no es que falte el
+icono, es que la página afirma tenerlo.
 
-## 6. Criterios de aceptación
+### 2.5 — Los consumidores del handler viejo
 
-| # | Comprobación | Esperado |
+`faviconSvgHandler` sigue existiendo para el camino de desarrollo, pero deja de
+escribirse vacío. Revisa y ajusta sus tres consumidores:
+
+| Archivo | Qué hace hoy | Qué debe hacer |
 |---|---|---|
-| 1 | `go test ./...` | verde |
-| 2 | `find . -name "*_test.go" -not -path "./tests/*" -not -path "./.git/*"` | vacío |
-| 3 | Un proyecto con `RenderSite()` + `sitec build` sin flags | emite `sitemap.xml` y copia los activos estáticos |
-| 4 | `grep -rn "SiteURL" .` | sigue existiendo en `BuildConfig` (compatibilidad) |
-| 5 | `RenderSite()` sin `RenderPages()` | error con el texto exacto de la etapa 6 |
-| 6 | Activo estático ausente | error `sitec: activo estático declarado y ausente:` |
+| `emit_route.go:107` | rellena `doc.FaviconURL` con la ruta del handler | usar el primer archivo con `Rel: "icon"`; si no hay ninguno, dejarlo vacío |
+| `emit_inspect.go:118` | `GetFaviconURLPath()` | igual que arriba; que no devuelva la ruta de un archivo que no se escribió |
+| `emit_events.go` | observa `favicon.svg` en disco | **no lo toques**: es el camino de desarrollo y sigue siendo válido |
 
-## 7. Defecto asociado: `PublishImages` escribe en disco siempre
+## 3. Tests — en `tests/`
 
-Fuera del alcance principal de este plan, pero **hay que decidirlo aquí** porque
-es de esta librería.
+`gotest`, nunca `go test`. Ni un `*_test.go` fuera de `tests/`.
 
-`emit_images.go` (v0.1.4) hace, para cada imagen procesada:
+| Test | Qué fija |
+|---|---|
+| `TestFaviconProducerIsRecognized` | El escáner reconoce `Favicon` como productor: un paquete que lo declara aparece con `HasFavicon`. |
+| `TestFaviconOnlyRootModule` | Un módulo no raíz que lo declara → error nombrando el módulo. |
+| `TestFaviconEmitsFullSet` | Con un logo cuadrado de 256, la salida contiene `icon-32.png`, `icon-192.png`, `apple-touch-icon.png` y `favicon.ico`. |
+| `TestFaviconLinksInHead` | El `<head>` lleva un `<link>` por archivo con `Rel`, con sus `type` y `sizes`, y **ninguno** para el `.ico`. |
+| `TestFaviconInvalidLogoFailsBuild` | Un logo de 800×600 → el build falla con el mensaje de `favicon.Derive`, sin escribir nada. |
+| `TestNoFaviconNoLinkNoFile` | Sin productor y sin archivo: la salida **no** contiene `favicon.svg` y el `<head>` **no** trae ningún `rel="icon"`. |
+| `TestExistingFaviconSvgSurvives` | Un `favicon.svg` real en la salida sigue ahí, con su contenido, después del build. Es la regresión que motivó el plan. |
 
-```go
-urlKey   := path.Join("/", a.Path)                 // memoria — lo que sirve el servidor
-diskPath := filepath.Join(outputDir, a.Path)       // disco
-...
-if err := fs.Write(diskPath, a.Content, a.Mediatype); err != nil {
-	return err
-}
-```
+El último es el que hay que escribir primero: hoy falla.
 
-y el FS por defecto de `NewAssetMin` es `NewOsFS()` (`emit_core.go:287`).
+## 4. Documentación
 
-Consecuencia medida: el demonio de desarrollo reescribe
-`<proyecto>/web/public/img/*.jpg` **en cada arranque** (mtimes `22:04` → `22:13`
-→ `22:42` en un proyecto real). El contenido sale idéntico porque el pipeline es
-determinista, así que `git status` queda limpio y nadie se entera — hasta que
-cambie la calidad o el conjunto de variantes.
+- [`docs/ARCHITECTURE.md`](ARCHITECTURE.md): la lista de productores pasa a
+  nueve, con `Favicon()` y su regla de módulo raíz.
+- [`README.md`](../README.md): ejemplo de declaración con `go:embed`, y la nota
+  de que `sitec` **no sanea** el SVG que reciba: un SVG de un tercero se limpia
+  antes con `github.com/tinywasm/svg/sanitize`. El de un proyecto es suyo y es
+  de confianza.
 
-Eso contradice la regla ya fijada en
-`tinywasm/docs/SINGLE_OUTPUT_MASTER_PLAN.md`:
+Ningún documento debe citar `docs/PLAN.md`: este archivo se borra al publicar.
 
-> El demonio no escribe el sitio. Lo sirve desde memoria. Queda un solo
-> directorio, `web/public`, con un solo productor: el build de release.
+## 5. Criterios de aceptación
 
-Dos arreglos, y hacen falta **los dos**:
+- [ ] `gotest` en verde.
+- [ ] `gofmt -l .` vacío.
+- [ ] `grep -rn "Favicon" scanner.go select.go extract.go` → los tres reconocen el productor.
+- [ ] `grep -c "HasFavicon" extract.go` → **2** como mínimo: las dos ramas de la plantilla.
+- [ ] `grep -rn "generateFaviconLink" *.go` → el enlace fijo a `image/svg+xml` ya no existe.
+- [ ] Un build de un proyecto sin icono no deja `favicon.svg` en la salida:
+      `TestNoFaviconNoLinkNoFile` lo prueba.
+- [ ] Los siete tests de §3 existen y pasan.
 
-1. **En `tinywasm/app`** (su plan, etapa 1): inyectar `sitec.NewMemFS()` en el
-   `AssetMin` del demonio, para que **nada** de lo que haga `sitec` pueda tocar
-   el proyecto. Es la barrera dura.
-2. **Aquí**: `PublishImages` publica en el `FS`; escribir en disco es
-   responsabilidad de quien decide volcar (`Site.WriteTo`, `FlushToDisk`), no
-   un efecto secundario de publicar. Quita el `fs.Write` de `PublishImages`
-   **si y solo si** compruebas que el camino de release (`Build` →
-   `WriteTo`) sigue emitiendo las imágenes: `Build` usa `NewMemFS`, así que las
-   imágenes deben estar en `Artifacts()` para llegar al disco. Añade un test que
-   lo fije:
+## 6. Anti-footguns
 
-   `tests/site_release_incluye_imagenes_test.go` — `Build(ModeRelease)` +
-   `WriteTo` produce los archivos de `img/` en la salida.
-
-   Si al quitarlo el release pierde las imágenes, **no lo quites**: reporta que
-   `Artifacts()` no las incluye y arréglalo primero.
-
-## 8. Fuera de alcance (lo hacen otros planes)
-
-- **Que el demonio deje de escribir en el proyecto** → `tinywasm/app`. Este plan
-  no toca `PublishImages` ni `FlushToDisk`.
-- **El orden de arranque del demonio** (servir antes de tener el sitio completo)
-  → `tinywasm/app`.
-- **Borrar `tools/build/main.go` de `acme/acme-web`** → ese repo, cuando esto
-  se publique.
+1. **No derives los tamaños aquí.** Redimensionar y escribir el `.ico` es de
+   `github.com/tinywasm/image/favicon`. Este repo decide *cuándo* se llama y
+   *cómo* se enlaza.
+2. **No sanees SVG aquí.** Un proyecto declara su propio icono, y lo suyo es de
+   confianza. El SVG de un desconocido lo limpia
+   `github.com/tinywasm/svg/sanitize`, en quien lo recibe.
+3. **Las dos ramas de la plantilla de `extract.go`.** Receptor con nombre y
+   paquete suelto. Es el error más fácil de cometer aquí.
+4. **No conviertas el icono ausente en un error de build.** Ver §2.4.
+5. `docs/PLAN.md` (este archivo) no se renombra ni se borra, y su frontmatter
+   —`PLAN`, `TAG`, `EXECUTOR`, `STATUS`, `SESSION`, `PR`— **no se edita a mano**.

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tinywasm/sitec"
 	"github.com/tinywasm/font"
+	"github.com/tinywasm/sitec"
 )
 
 type fontsExtractor struct {

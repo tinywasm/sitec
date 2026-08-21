@@ -44,7 +44,6 @@ func (h *asset) AddDynamicContent(fn func() []byte) {
 	h.cacheValid = false
 }
 
-
 // newAssetFile creates a new asset with the specified parameters
 func newAssetFile(outputName, mediaType string, ac *Config, initCode func() (string, error)) *asset {
 	handler := &asset{

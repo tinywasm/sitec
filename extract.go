@@ -22,6 +22,7 @@ type CollectorOutput struct {
 	Fonts   font.Declaration `json:"fonts"`
 	Pages   []html.Page      `json:"pages"`
 	Site    *Site            `json:"site"`
+	Favicon *FaviconWire     `json:"favicon"`
 }
 
 // fontsWire is the JSON shape for a Declaration (unexported fields cannot marshal).
@@ -29,6 +30,13 @@ type fontsWire struct {
 	Family string `json:"family"`
 	Dir    string `json:"dir"`
 }
+
+type FaviconWire struct {
+	Raster []byte `json:"raster"`
+	SVG    []byte `json:"svg"`
+}
+
+type faviconWire = FaviconWire
 
 type ScriptOutput struct {
 	Name    string `json:"name"`
@@ -42,15 +50,16 @@ const (
 )
 
 type receiverFeature struct {
-	Name      string
-	HasRoot   bool
-	HasRender bool
-	HasHTML   bool
-	HasJS     bool
-	HasIcons  bool
-	HasFonts  bool
-	HasPages  bool
-	HasSite   bool
+	Name       string
+	HasRoot    bool
+	HasRender  bool
+	HasHTML    bool
+	HasJS      bool
+	HasIcons   bool
+	HasFonts   bool
+	HasPages   bool
+	HasSite    bool
+	HasFavicon bool
 }
 
 type moduleAlias struct {
@@ -93,6 +102,7 @@ func invokeSSRExtractorOnce(projectRoot string, startDir string, modules []modul
 		Fonts   fontsWire         `json:"fonts"`
 		Pages   []html.Page       `json:"pages"`
 		Site    *Site             `json:"site"`
+		Favicon *faviconWire      `json:"favicon"`
 	}
 
 	// Parse the JSON output
@@ -134,6 +144,7 @@ func invokeSSRExtractorOnce(projectRoot string, startDir string, modules []modul
 			Fonts:   fonts,
 			Pages:   raw.Pages,
 			Site:    raw.Site,
+			Favicon: raw.Favicon,
 		}
 	}
 
@@ -171,14 +182,20 @@ type siteWire struct {
 	StaticAssets []string ` + "`json:\"static_assets\"`" + `
 }
 
+type faviconWire struct {
+	Raster []byte ` + "`json:\"raster\"`" + `
+	SVG    []byte ` + "`json:\"svg\"`" + `
+}
+
 type ssr struct {
-	Root    string      ` + "`json:\"root\"`" + `
-	Render  string      ` + "`json:\"render\"`" + `
-	HTML    string      ` + "`json:\"html\"`" + `
-	Scripts []script    ` + "`json:\"scripts\"`" + `
-	Icons   []any       ` + "`json:\"icons\"`" + `
-	Fonts   fontsWire   ` + "`json:\"fonts\"`" + `
-	Site    *siteWire   ` + "`json:\"site\"`" + `
+	Root    string       ` + "`json:\"root\"`" + `
+	Render  string       ` + "`json:\"render\"`" + `
+	HTML    string       ` + "`json:\"html\"`" + `
+	Scripts []script     ` + "`json:\"scripts\"`" + `
+	Icons   []any        ` + "`json:\"icons\"`" + `
+	Fonts   fontsWire    ` + "`json:\"fonts\"`" + `
+	Site    *siteWire    ` + "`json:\"site\"`" + `
+	Favicon *faviconWire ` + "`json:\"favicon\"`" + `
 	{{if .HasAnyPages}}Pages []html.Page ` + "`json:\"pages\"`" + `{{end}}
 }
 
@@ -229,6 +246,12 @@ func main() {
 				s.Site = &siteWire{URL: st.URL, StaticAssets: st.StaticAssets}
 			}
 			{{end}}
+			{{if .HasFavicon}}
+			{
+				f := inst.Favicon()
+				s.Favicon = &faviconWire{Raster: f.Raster, SVG: f.SVG}
+			}
+			{{end}}
 			{{else}}
 			{{if .HasRoot}}s.Root += {{$alias}}.RootCSS().String(){{end}}
 			{{if .HasRender}}s.Render += {{$alias}}.RenderCSS().String(){{end}}
@@ -250,6 +273,12 @@ func main() {
 			{
 				st := {{$alias}}.RenderSite()
 				s.Site = &siteWire{URL: st.URL, StaticAssets: st.StaticAssets}
+			}
+			{{end}}
+			{{if .HasFavicon}}
+			{
+				f := {{$alias}}.Favicon()
+				s.Favicon = &faviconWire{Raster: f.Raster, SVG: f.SVG}
 			}
 			{{end}}
 			{{end}}

@@ -3,8 +3,8 @@
 package sitec_test
 
 import (
-	"testing"
 	"github.com/tinywasm/css"
+	"testing"
 )
 
 type mockComponent struct {

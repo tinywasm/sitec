@@ -31,6 +31,7 @@ func (c *AssetMin) UpdateFileContentInMemory(filePath, extension, event string, 
 		// Check if it's the favicon file
 		if filepath.Base(filePath) == c.faviconSvgHandler.fileOutputName {
 			err := c.faviconSvgHandler.UpdateContent(filePath, event, file)
+			c.updateHtmlFaviconLinks()
 			return c.faviconSvgHandler, err
 		}
 		// Otherwise treat as sprite icon

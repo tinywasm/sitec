@@ -6,16 +6,22 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tinywasm/sitec"
 	"github.com/tinywasm/css"
+	"github.com/tinywasm/sitec"
 )
 
 type rootProvider struct{}
+
 func (p *rootProvider) RootCSS() *css.Stylesheet { return css.NewStylesheet(css.Raw(":root{--a:1;}")) }
 
 type rootAndCssProvider struct{}
-func (p *rootAndCssProvider) RootCSS() *css.Stylesheet { return css.NewStylesheet(css.Raw(":root{--b:2;}")) }
-func (p *rootAndCssProvider) RenderCSS() *css.Stylesheet { return css.NewStylesheet(css.Raw(".comp{color:red;}")) }
+
+func (p *rootAndCssProvider) RootCSS() *css.Stylesheet {
+	return css.NewStylesheet(css.Raw(":root{--b:2;}"))
+}
+func (p *rootAndCssProvider) RenderCSS() *css.Stylesheet {
+	return css.NewStylesheet(css.Raw(".comp{color:red;}"))
+}
 
 func TestRegister_RootCssProvider_NonEmpty(t *testing.T) {
 	am := sitec.NewAssetMin(&sitec.Config{})
@@ -32,9 +38,11 @@ func TestRegister_RootCssProvider_NonEmpty(t *testing.T) {
 }
 
 type rootProviderA struct{}
+
 func (p *rootProviderA) RootCSS() *css.Stylesheet { return css.NewStylesheet(css.Raw(":root{--a:1;}")) }
 
 type rootProviderB struct{}
+
 func (p *rootProviderB) RootCSS() *css.Stylesheet { return css.NewStylesheet(css.Raw(":root{--b:1;}")) }
 
 func TestRegister_RootCssOverrides(t *testing.T) {

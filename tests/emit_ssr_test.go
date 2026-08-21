@@ -3,8 +3,8 @@
 package sitec_test
 
 import (
-	"github.com/tinywasm/sitec"
 	"bytes"
+	"github.com/tinywasm/sitec"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,7 +28,7 @@ func TestSSRModeDelegation(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	ac :=  &sitec.Config{
+	ac := &sitec.Config{
 		OutputDir: filepath.Join(tmpDir, "dist"),
 	}
 	am := sitec.NewAssetMin(ac)

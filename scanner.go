@@ -99,6 +99,7 @@ func (s *scanner) scanFile(path string) (fileFeatures, error) {
 		"Fonts":       true,
 		"RenderPages": true,
 		"RenderSite":  true,
+		"Favicon":     true,
 	}
 
 	for _, decl := range f.Decls {

@@ -3,10 +3,10 @@
 package sitec_test
 
 import (
-	"strings"
-	"testing"
 	"github.com/tinywasm/css"
 	"github.com/tinywasm/sitec"
+	"strings"
+	"testing"
 )
 
 type mockRootProvider struct {
