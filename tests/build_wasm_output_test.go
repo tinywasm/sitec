@@ -142,3 +142,28 @@ func TestWasmBuild_DefaultsUnchanged(t *testing.T) {
 		t.Errorf("zero options should still look for web/client.go, got: %v", err)
 	}
 }
+
+// El builder compila con cmd.Dir = dir, asi que el entry viaja relativo a ese
+// directorio. Con un dir relativo distinto de "." el bug era invisible en los
+// otros tests —que usan t.TempDir(), absoluto— y hacia que el compilador
+// buscara dir/dir/entry.
+func TestWasmBuild_RelativeDirResolvesEntry(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	const projectDir = "proj"
+	if err := os.MkdirAll(filepath.Join(projectDir, "web"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "web", "client.go"), []byte("package main\nfunc main() {}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	wb := sitec.NewDefaultWasmBuilder(true) // stdlib: no requiere TinyGo
+	out, err := wb.Build(projectDir)
+	if err != nil {
+		t.Fatalf("Build con dir relativo fallo: %v", err)
+	}
+	if len(out.Binary) == 0 {
+		t.Error("expected non-empty binary")
+	}
+}

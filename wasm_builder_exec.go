@@ -87,15 +87,20 @@ func (w *defaultWasmBuilder) Build(dir string) (WasmOutput, error) {
 	tmpOutPath := filepath.Join(tmpOutDir, wasmFilename)
 
 	// Paso 5: compile
+	//
+	// El compilador corre con cmd.Dir = dir, asi que el entry se pasa tal cual
+	// —relativo a ese directorio—. Pasar clientPath, que ya lleva dir delante,
+	// hacia que el compilador buscara dir/dir/entry: invisible cuando dir es
+	// absoluto o ".", fatal con cualquier dir relativo.
 	var cmd *exec.Cmd
 	if !w.stdlib {
 		// -no-debug: a shipped web binary is never a source-level debug
 		// target — DWARF info alone is the difference between ~99 KiB and
 		// ~456 KiB for a minimal client, which is most of a size budget spent
 		// on symbols nobody attaches a debugger to.
-		cmd = exec.Command("tinygo", "build", "-target", "wasm", "-no-debug", "-o", tmpOutPath, clientPath)
+		cmd = exec.Command("tinygo", "build", "-target", "wasm", "-no-debug", "-o", tmpOutPath, entry)
 	} else {
-		cmd = exec.Command("go", "build", "-o", tmpOutPath, clientPath)
+		cmd = exec.Command("go", "build", "-o", tmpOutPath, entry)
 	}
 	cmd.Dir = dir
 	cmd.Env = env
