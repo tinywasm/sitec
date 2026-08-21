@@ -78,15 +78,23 @@ func buildFaviconHeadLinks(files []favicon.File, prefix string) []byte {
 			sb.WriteString("\n\t")
 		}
 		first = false
-		sb.WriteString(`<link rel="` + f.Rel + `"`)
+		sb.WriteString(`<link rel="`)
+		sb.WriteString(f.Rel)
+		sb.WriteString(`"`)
 		if f.Type != "" {
-			sb.WriteString(` type="` + f.Type + `"`)
+			sb.WriteString(` type="`)
+			sb.WriteString(f.Type)
+			sb.WriteString(`"`)
 		}
 		if f.Sizes != "" {
-			sb.WriteString(` sizes="` + f.Sizes + `"`)
+			sb.WriteString(` sizes="`)
+			sb.WriteString(f.Sizes)
+			sb.WriteString(`"`)
 		}
 		href := path.Join("/", prefix, f.Name)
-		sb.WriteString(` href="` + href + `">`)
+		sb.WriteString(` href="`)
+		sb.WriteString(href)
+		sb.WriteString(`">`)
 	}
 	return []byte(sb.String())
 }
