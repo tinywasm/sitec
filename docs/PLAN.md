@@ -2,6 +2,8 @@
 PLAN: "fix: rutas relativas para css/js/favicon/sprite cuando el build no declara paginas"
 EXECUTOR: jules
 REVIEWER: none
+STATUS: running
+SESSION: 10786375933195928469
 ---
 
 > Este plan se despacha con el flujo CodeJob. Ver skill: agents-workflow.
