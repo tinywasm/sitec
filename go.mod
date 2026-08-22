@@ -14,7 +14,7 @@ require (
 	github.com/tinywasm/modfind v0.0.4
 	github.com/tinywasm/router v0.1.27
 	github.com/tinywasm/svg v0.3.0
-	github.com/tinywasm/tinygo v0.0.11
+	github.com/tinywasm/tinygo v1.0.0
 )
 
 require (
