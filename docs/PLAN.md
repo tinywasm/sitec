@@ -2,8 +2,9 @@
 PLAN: "fix: rutas relativas para css/js/favicon/sprite cuando el build no declara paginas"
 EXECUTOR: jules
 REVIEWER: none
-STATUS: running
+STATUS: review
 SESSION: 10786375933195928469
+PR: https://github.com/tinywasm/sitec/pull/18
 ---
 
 > Este plan se despacha con el flujo CodeJob. Ver skill: agents-workflow.
