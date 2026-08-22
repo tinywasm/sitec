@@ -96,6 +96,12 @@ func TestEmitPages_MultiPageEmission(t *testing.T) {
 	if !strings.Contains(subStr, "Oftalmología Content") {
 		t.Errorf("subpage body missing content, got: %s", subStr)
 	}
+	if !strings.Contains(indexStr, `href="/style.css"`) && !strings.Contains(indexStr, `href='/style.css'`) {
+		t.Errorf("home page stylesheet must stay domain-root-absolute when pages exist, got: %s", indexStr)
+	}
+	if !strings.Contains(subStr, `href="/style.css"`) && !strings.Contains(subStr, `href='/style.css'`) {
+		t.Errorf("nested page stylesheet must stay domain-root-absolute when pages exist, got: %s", subStr)
+	}
 }
 
 func TestEmitPages_Collision_RenderHTML_and_RenderPages(t *testing.T) {
@@ -190,5 +196,39 @@ func TestEmitPages_RenderHTML_Only_Regression(t *testing.T) {
 
 	if !strings.Contains(string(indexBytes), "Legacy Single Page") {
 		t.Errorf("index.html missing legacy content, got: %s", string(indexBytes))
+	}
+}
+
+func TestEmitPages_RenderHTML_Only_RelativeAssetPaths(t *testing.T) {
+	ac := &sitec.Config{
+		OutputDir: "web/public",
+	}
+	am := sitec.NewAssetMin(ac)
+
+	htmlAsset := &sitec.Assets{
+		ModuleName: "example.com/app",
+		HTML:       "<div>App Shell</div>",
+	}
+
+	err := am.RouteExtractedAssets([]*sitec.Assets{htmlAsset})
+	if err != nil {
+		t.Fatalf("unexpected error for RenderHTML-only module: %v", err)
+	}
+
+	indexPath := "web/public/index.html"
+	indexBytes, _, ok := am.Read(indexPath)
+	if !ok {
+		t.Fatalf("expected %s to exist", indexPath)
+	}
+	indexStr := string(indexBytes)
+
+	if !strings.Contains(indexStr, `href="style.css"`) && !strings.Contains(indexStr, `href='style.css'`) {
+		t.Errorf("expected relative stylesheet href when no pages are declared, got: %s", indexStr)
+	}
+	if !strings.Contains(indexStr, `src="script.js"`) && !strings.Contains(indexStr, `src='script.js'`) {
+		t.Errorf("expected relative script src when no pages are declared, got: %s", indexStr)
+	}
+	if strings.Contains(indexStr, `href="/style.css"`) || strings.Contains(indexStr, `src="/script.js"`) {
+		t.Errorf("asset paths must not be domain-root-absolute when no pages are declared, got: %s", indexStr)
 	}
 }

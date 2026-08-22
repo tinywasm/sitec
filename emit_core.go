@@ -165,6 +165,42 @@ func (c *AssetMin) RouteExtractedAssets(all []*Assets) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Las rutas del CSS/JS/favicon/sprite principales son relativas cuando el
+	// build no declara ninguna página: un único index.html en la raíz (el
+	// shell de una app WASM, sin RenderPages) puede montarse bajo cualquier
+	// prefijo — dominio raíz, subpath de un servidor de preview, etc. — y una
+	// ruta relativa lo resuelve sin importar dónde. Absolutas desde "/" sólo
+	// son correctas cuando SÍ hay páginas, porque entonces pueden vivir a
+	// distinta profundidad (ver TestEmitPages_MultiPageEmission, con una
+	// página en "/especialidades/oftalmologia/") y sólo una referencia
+	// absoluta desde el dominio las alcanza a todas por igual. Recalculado en
+	// cada llamada (no sólo la primera) para que un hot-reload que agrega o
+	// quita páginas no deje una ruta obsoleta.
+	hasPages := false
+	for _, a := range all {
+		if a != nil && len(a.Pages) > 0 {
+			hasPages = true
+			break
+		}
+	}
+
+	cssFile := filepath.Base(c.mainStyleCssHandler.urlPath)
+	jsFile := filepath.Base(c.mainJsHandler.urlPath)
+	faviconFile := filepath.Base(c.faviconSvgHandler.urlPath)
+	spriteFile := filepath.Base(c.spriteSvgHandler.urlPath)
+
+	if hasPages {
+		c.mainStyleCssHandler.urlPath = path.Join("/", c.Config.AssetsURLPrefix, cssFile)
+		c.mainJsHandler.urlPath = path.Join("/", c.Config.AssetsURLPrefix, jsFile)
+		c.faviconSvgHandler.urlPath = path.Join("/", c.Config.AssetsURLPrefix, faviconFile)
+		c.spriteSvgHandler.urlPath = path.Join("/", c.Config.AssetsURLPrefix, spriteFile)
+	} else {
+		c.mainStyleCssHandler.urlPath = path.Join(c.Config.AssetsURLPrefix, cssFile)
+		c.mainJsHandler.urlPath = path.Join(c.Config.AssetsURLPrefix, jsFile)
+		c.faviconSvgHandler.urlPath = path.Join(c.Config.AssetsURLPrefix, faviconFile)
+		c.spriteSvgHandler.urlPath = path.Join(c.Config.AssetsURLPrefix, spriteFile)
+	}
+
 	// 0. RenderSite(): solo el raíz describe el sitio, y solo uno. El aviso de
 	// módulo no raíz lo emite routeAssets (cubre también el camino de reload).
 	// Aquí solo se detecta el caso que un single-module reload no puede ver:
