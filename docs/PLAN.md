@@ -2,8 +2,9 @@
 PLAN: "fix!: WasmBuilder compila el paquete, no un archivo suelto"
 EXECUTOR: jules
 REVIEWER: none
-STATUS: running
+STATUS: review
 SESSION: 9976815068638776852
+PR: https://github.com/tinywasm/sitec/pull/19
 ---
 
 > This plan is dispatched via the CodeJob workflow. See skill: agents-workflow.
