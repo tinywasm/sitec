@@ -16,7 +16,8 @@ import (
 // fields to compile something else — an edge worker entry point, for example,
 // which is main.go and must come out named for the platform that serves it.
 type WasmBuildOptions struct {
-	// Entry is the input file, relative to the directory passed to Build.
+	// Entry is the input file relative to the directory passed to Build, used to
+	// locate the package directory to compile and verify its existence.
 	// Empty means "web/client.go".
 	Entry string
 	// OutputName is the artifact name without the .wasm extension.
@@ -60,6 +61,7 @@ func (w *defaultWasmBuilder) Build(dir string) (WasmOutput, error) {
 	if _, err := os.Stat(clientPath); err != nil {
 		return WasmOutput{}, fmt.Err("input file not found: ", entry, " must exist")
 	}
+	pkgDir := filepath.Join(dir, filepath.Dir(entry))
 
 	env := os.Environ()
 
@@ -88,21 +90,20 @@ func (w *defaultWasmBuilder) Build(dir string) (WasmOutput, error) {
 
 	// Paso 5: compile
 	//
-	// El compilador corre con cmd.Dir = dir, asi que el entry se pasa tal cual
-	// —relativo a ese directorio—. Pasar clientPath, que ya lleva dir delante,
-	// hacia que el compilador buscara dir/dir/entry: invisible cuando dir es
-	// absoluto o ".", fatal con cualquier dir relativo.
+	// El compilador corre con cmd.Dir = pkgDir para compilar el paquete entero
+	// (el directorio) en vez de un archivo suelto. Esto permite que el paquete
+	// tenga archivos hermanos (ej: main.go y access.go).
 	var cmd *exec.Cmd
 	if !w.stdlib {
 		// -no-debug: a shipped web binary is never a source-level debug
 		// target — DWARF info alone is the difference between ~99 KiB and
 		// ~456 KiB for a minimal client, which is most of a size budget spent
 		// on symbols nobody attaches a debugger to.
-		cmd = exec.Command("tinygo", "build", "-target", "wasm", "-no-debug", "-o", tmpOutPath, entry)
+		cmd = exec.Command("tinygo", "build", "-target", "wasm", "-no-debug", "-o", tmpOutPath, ".")
 	} else {
-		cmd = exec.Command("go", "build", "-o", tmpOutPath, entry)
+		cmd = exec.Command("go", "build", "-o", tmpOutPath, ".")
 	}
-	cmd.Dir = dir
+	cmd.Dir = pkgDir
 	cmd.Env = env
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return WasmOutput{}, fmt.Err("compilation failed: ", string(out), err)
