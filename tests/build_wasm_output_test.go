@@ -26,6 +26,10 @@ func TestRunWasmBuild_FailsIfInputMissing(t *testing.T) {
 func TestWasmbuild_WritesScriptJSFromJSPackage_Stdlib(t *testing.T) {
 	tmpDir := t.TempDir()
 
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module testapp\n\ngo 1.22\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
 	// Create web/client.go
 	if err := os.MkdirAll(filepath.Join(tmpDir, "web"), 0755); err != nil {
 		t.Fatal(err)
@@ -64,6 +68,10 @@ func TestWasmbuild_WritesScriptJSFromJSPackage_Stdlib(t *testing.T) {
 
 func TestWasmbuild_WritesScriptJSFromJSPackage_TinyGo(t *testing.T) {
 	tmpDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module testapp\n\ngo 1.22\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Create web/client.go
 	if err := os.MkdirAll(filepath.Join(tmpDir, "web"), 0755); err != nil {
@@ -108,6 +116,9 @@ func TestWasmbuild_WritesScriptJSFromJSPackage_TinyGo(t *testing.T) {
 func TestWasmBuild_CustomEntryAndOutputName(t *testing.T) {
 	tmpDir := t.TempDir()
 
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module testapp\n\ngo 1.22\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(tmpDir, "main.go"),
 		[]byte("package main\nfunc main() {}"), 0644); err != nil {
 		t.Fatal(err)
@@ -154,6 +165,9 @@ func TestWasmBuild_RelativeDirResolvesEntry(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(projectDir, "web"), 0755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(projectDir, "go.mod"), []byte("module testapp\n\ngo 1.22\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(projectDir, "web", "client.go"), []byte("package main\nfunc main() {}"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -165,5 +179,40 @@ func TestWasmBuild_RelativeDirResolvesEntry(t *testing.T) {
 	}
 	if len(out.Binary) == 0 {
 		t.Error("expected non-empty binary")
+	}
+}
+
+// TestWasmBuild_CompilesSiblingFilesInSamePackage cierra la regresion real de
+// goflare-demo: un entry point con mas de un archivo en el mismo paquete
+// perdia los archivos hermanos porque el compilador se invocaba con el
+// nombre de archivo (modo command-line-arguments) en vez del directorio.
+func TestWasmBuild_CompilesSiblingFilesInSamePackage(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module testapp\n\ngo 1.22\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, "edge"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "edge", "main.go"),
+		[]byte("package main\nfunc main() { helper() }"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "edge", "access.go"),
+		[]byte("package main\nfunc helper() {}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	wb := sitec.NewWasmBuilder(true, sitec.WasmBuildOptions{
+		Entry:      "edge/main.go",
+		OutputName: "edge",
+	})
+	out, err := wb.Build(tmpDir)
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+	if len(out.Binary) == 0 {
+		t.Error("Binary is empty")
 	}
 }
