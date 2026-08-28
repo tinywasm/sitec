@@ -2,8 +2,9 @@
 PLAN: "fix: AssetMin.Read resuelve rutas relativizadas contra la clave absoluta de la petición (shell WASM servido desde memoria)"
 EXECUTOR: jules
 REVIEWER: none
-STATUS: running
+STATUS: review
 SESSION: 8847021014614760349
+PR: https://github.com/tinywasm/sitec/pull/20
 ---
 
 > Este plan se despacha con el flujo CodeJob. Ver skill: `agents-workflow`.
