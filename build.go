@@ -3,7 +3,6 @@ package sitec
 import (
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/tinywasm/fmt"
 	"github.com/tinywasm/image/min"
@@ -11,7 +10,6 @@ import (
 
 const (
 	DefaultOutputDir    = "web/public"
-	DefaultDevOutputDir = ".tinywasm/public"
 	DefaultImageQuality = 82
 )
 
@@ -54,7 +52,7 @@ type Site struct {
 type BuildConfig struct {
 	RootDir        string // Root directory of the module (where go.mod lives). Required.
 	Mode           Mode
-	OutputDir      string // Relative to RootDir. Empty => DefaultOutputDir (Release) or DefaultDevOutputDir (Dev).
+	OutputDir      string // Relative to RootDir. Empty => DefaultOutputDir.
 	SiteURL        string // Enables sitemap.xml and absolute canonical URLs.
 	AppName        string
 	StaticAssets   []string // Declared static assets relative to RootDir copied verbatim.
@@ -78,22 +76,11 @@ func (s *Output) Artifacts() []Artifact {
 }
 
 // An artifact's Path is a URL ("/style.css", "/", "/acerca/") — the URL is
-// the identity. A disk FS gets URLs with a leading slash resolved relative to
-// the FS root; joining them with OutputDir yields the real file
-// ("web/public/especialidades/oftalmologia/index.html").
+// the identity. diskPath resolves it to a real file under OutputDir
+// ("web/public/especialidades/oftalmologia/index.html"). Formula shared with
+// AssetMin.artifactDiskPath (emit_flush.go).
 func (s *Output) diskPath(art Artifact) string {
-	rel := strings.TrimPrefix(art.Path, "/")
-	if rel == "" {
-		rel = "index.html"
-	}
-	if strings.HasSuffix(rel, "/") {
-		rel = rel + "index.html"
-	}
-	outDir := ""
-	if s.am.Config != nil {
-		outDir = s.am.Config.OutputDir
-	}
-	return filepath.Join(outDir, rel)
+	return s.am.artifactDiskPath(art.Path)
 }
 
 // WriteTo writes the built site artifacts to the given FS.
@@ -148,11 +135,7 @@ func Build(cfg BuildConfig) (*Output, error) {
 
 	outDir := cfg.OutputDir
 	if outDir == "" {
-		if cfg.Mode == ModeDev {
-			outDir = DefaultDevOutputDir
-		} else {
-			outDir = DefaultOutputDir
-		}
+		outDir = DefaultOutputDir
 	}
 
 	imgQuality := cfg.ImageQuality

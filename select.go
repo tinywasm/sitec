@@ -109,13 +109,23 @@ func expandToSSRPackages(modules []module, scanner *scanner, assetLibraries []st
 	return out
 }
 
-func modulesToAliases(modules []module, scanner *scanner, assetLibraries []string, rootDir string, lister GraphLister, log func(...any)) ([]moduleAlias, error) {
-	reach := computeReachability(rootDir, lister)
+func modulesToAliases(modules []module, scanner *scanner, assetLibraries []string, rootDir string, lister GraphLister, log func(...any), verbose bool) ([]moduleAlias, error) {
+	var reachLog func(...any)
+	if verbose {
+		reachLog = log
+	}
+	reach := computeReachability(rootDir, lister, reachLog)
 
 	var skipped []string
 	var aliases []moduleAlias
 	for _, m := range expandToSSRPackages(modules, scanner, assetLibraries) {
-		if reach.known && !reach.set[m.path] {
+		// reach.partial: at least one build target's probe failed, so the
+		// reachable set is incomplete. Filtering on incomplete data risks
+		// excluding a package that IS reachable — silently dropping its
+		// styles, exactly the failure this whole mechanism exists to catch.
+		// Skip filtering entirely for this pass; the next scan retries with
+		// (usually) a warm module cache.
+		if reach.known && !reach.partial && !reach.set[m.path] {
 			skipped = append(skipped, m.path)
 			continue
 		}
@@ -207,10 +217,8 @@ func modulesToAliases(modules []module, scanner *scanner, assetLibraries []strin
 		aliases = append(aliases, ma)
 	}
 
-	if log != nil {
-		for _, path := range skipped {
-			log(fmt.Sprintf(skippedUnreachableFmt, path))
-		}
+	if log != nil && verbose && len(skipped) > 0 {
+		log(fmt.Sprintf(skippedUnreachableSummaryFmt, len(skipped), strings.Join(skipped, ", ")))
 	}
 
 	return aliases, nil

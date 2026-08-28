@@ -12,7 +12,7 @@ require (
 	github.com/tinywasm/image v0.1.0
 	github.com/tinywasm/js v0.0.4
 	github.com/tinywasm/modfind v0.0.4
-	github.com/tinywasm/router v0.1.27
+	github.com/tinywasm/router v0.1.29
 	github.com/tinywasm/svg v0.3.0
 	github.com/tinywasm/tinygo v1.0.0
 )
@@ -25,6 +25,6 @@ require (
 	github.com/tinywasm/context v0.0.18 // indirect
 	github.com/tinywasm/fetch v0.1.24 // indirect
 	github.com/tinywasm/json v0.5.23 // indirect
-	github.com/tinywasm/model v0.1.4 // indirect
+	github.com/tinywasm/model v0.1.7 // indirect
 	golang.org/x/image v0.45.0 // indirect
 )

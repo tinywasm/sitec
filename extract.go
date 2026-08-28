@@ -73,7 +73,7 @@ func (m moduleAlias) HasAnyFeature() bool {
 }
 
 // invokeSSRExtractorOnce generates a combined main.go, runs it once, and returns the aggregated output.
-func invokeSSRExtractorOnce(projectRoot string, startDir string, modules []module, scanner *scanner, assetLibraries []string, lister GraphLister, log func(...any), toolchain Toolchain) (map[string]CollectorOutput, error) {
+func invokeSSRExtractorOnce(projectRoot string, startDir string, modules []module, scanner *scanner, assetLibraries []string, lister GraphLister, log func(...any), toolchain Toolchain, verbose bool) (map[string]CollectorOutput, error) {
 	// Create a temporary hidden directory within projectRoot to ensure we are in the module context.
 	tmpDir := filepath.Join(projectRoot, ".ssr_extract")
 	if err := os.MkdirAll(tmpDir, 0755); err != nil {
@@ -83,7 +83,7 @@ func invokeSSRExtractorOnce(projectRoot string, startDir string, modules []modul
 
 	// Generate main.go that imports all modules
 	mainFile := filepath.Join(tmpDir, "main.go")
-	if err := GenerateExtractorMain(mainFile, modules, scanner, assetLibraries, startDir, lister, log); err != nil {
+	if err := GenerateExtractorMain(mainFile, modules, scanner, assetLibraries, startDir, lister, log, verbose); err != nil {
 		return nil, fmt.Err("failed to generate main.go", err)
 	}
 
@@ -152,7 +152,7 @@ func invokeSSRExtractorOnce(projectRoot string, startDir string, modules []modul
 }
 
 // GenerateExtractorMain writes a main.go file that imports all modules and collects their assets.
-func GenerateExtractorMain(outputFile string, modules []module, scanner *scanner, assetLibraries []string, startDir string, lister GraphLister, log func(...any)) error {
+func GenerateExtractorMain(outputFile string, modules []module, scanner *scanner, assetLibraries []string, startDir string, lister GraphLister, log func(...any), verbose bool) error {
 	tmpl := template.Must(template.New("extractor").Parse(`package main
 
 import (
@@ -300,7 +300,7 @@ func main() {
 }
 `))
 
-	aliases, err := modulesToAliases(modules, scanner, assetLibraries, startDir, lister, log)
+	aliases, err := modulesToAliases(modules, scanner, assetLibraries, startDir, lister, log, verbose)
 	if err != nil {
 		return err
 	}

@@ -30,7 +30,12 @@ type Extractor struct {
 	lister         GraphLister
 	toolchain      Toolchain
 	wasmBuilder    WasmBuilder
-	mu             sync.Mutex
+	// verbose gates low-value-by-default diagnostics (e.g. the "N packages
+	// skipped" reachability summary) that are correct but noisy on every
+	// cold-cache scan. Off by default; the caller (tinywasm/app) wires it to
+	// the -debug CLI flag via SetVerbose.
+	verbose bool
+	mu      sync.Mutex
 }
 
 func New(rootDir string) *Extractor {
@@ -48,6 +53,7 @@ func New(rootDir string) *Extractor {
 }
 
 func (e *Extractor) SetLog(fn func(...any))        { e.log = fn }
+func (e *Extractor) SetVerbose(v bool)             { e.verbose = v }
 func (e *Extractor) SetFinder(f *modfind.Finder)   { e.finder = f }
 func (e *Extractor) SetGraphLister(l GraphLister)  { e.lister = l }
 func (e *Extractor) SetToolchain(t Toolchain)      { e.toolchain = t }
@@ -118,7 +124,7 @@ func (e *Extractor) results(projectRoot string, startDir string, modules []modul
 		if l == nil {
 			l = e.defaultLister
 		}
-		results, err := invokeSSRExtractorOnce(projectRoot, startDir, modules, e.scanner, e.AssetLibraries, l, e.log, e.toolchain)
+		results, err := invokeSSRExtractorOnce(projectRoot, startDir, modules, e.scanner, e.AssetLibraries, l, e.log, e.toolchain, e.verbose)
 		if err != nil {
 			e.mu.Unlock()
 			return nil, err

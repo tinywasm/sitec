@@ -22,6 +22,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	imgmin "github.com/tinywasm/image/min"
 )
 
 // B1 — Stale on-disk bytes must be overwritten by current in-memory minified bytes.
@@ -177,6 +179,39 @@ func TestDiskMirrored_AfterFlushPropagates(t *testing.T) {
 	}
 	if !strings.Contains(string(got), "LATE") {
 		t.Fatalf("post-flush mutation did NOT propagate to disk. got=%q", got)
+	}
+}
+
+// Images register through PublishImages, which only appends to
+// directArtifacts — it deliberately never touches disk itself (see
+// emit_images.go). Before completing FlushToDisk to also walk
+// directArtifacts, an image published this way never reached disk in caso 2
+// (external server reading web/public from disk): the daemon would produce
+// it in memory and the user's server would 404 on it.
+func TestFlushToDisk_WritesDirectArtifacts(t *testing.T) {
+	env := setupTestEnv("flush_direct_artifacts", t)
+	defer env.CleanDirectory()
+
+	env.AssetsHandler.SetImageProcessor(&stubImageProcessor{
+		artifacts: []imgmin.Artifact{
+			{Path: "img/logo.webp", Mediatype: "image/webp", Content: []byte("fake-webp-bytes")},
+		},
+	})
+	if err := env.AssetsHandler.PublishImages(); err != nil {
+		t.Fatalf("PublishImages: %v", err)
+	}
+
+	if err := env.AssetsHandler.FlushToDisk(); err != nil {
+		t.Fatalf("FlushToDisk: %v", err)
+	}
+
+	imgPath := filepath.Join(env.PublicDir, "img", "logo.webp")
+	got, err := os.ReadFile(imgPath)
+	if err != nil {
+		t.Fatalf("expected direct artifact on disk after flush: %s — %v", imgPath, err)
+	}
+	if string(got) != "fake-webp-bytes" {
+		t.Errorf("direct artifact content mismatch: got %q", got)
 	}
 }
 
