@@ -627,8 +627,17 @@ func (c *AssetMin) Read(p string) ([]byte, string, bool) {
 		if strings.HasSuffix(aURL, "/") && aURL != "/" {
 			aURL = strings.TrimRight(aURL, "/")
 		}
+		// RouteExtractedAssets guarda las rutas de css/js/favicon/sprite
+		// RELATIVAS ("script.js") cuando el build no declara páginas —
+		// correcto para las referencias del HTML de un shell WASM montable
+		// bajo cualquier prefijo. La petición HTTP siempre llega absoluta
+		// ("/script.js"), así que se comparan sin la barra inicial.
+		aURLAbs := aURL
+		if !strings.HasPrefix(aURLAbs, "/") {
+			aURLAbs = "/" + aURLAbs
+		}
 
-		if a.GetURLPath() == urlKey || aURL == cleanURL || a.outputPath == p ||
+		if a.GetURLPath() == urlKey || aURL == cleanURL || aURLAbs == cleanURL || a.outputPath == p ||
 			(a.GetURLPath() == "/" && (urlKey == "/index.html" || (outDir != "" && p == filepath.Join(outDir, "index.html")))) ||
 			(strings.HasSuffix(urlKey, "/") && urlKey != "/" && (a.GetURLPath() == urlKey+"index.html" || (outDir != "" && a.outputPath == filepath.Join(outDir, strings.TrimPrefix(urlKey, "/")+"index.html")))) {
 			content, err := a.GetMinifiedContent(c.activeMinifier())

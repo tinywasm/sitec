@@ -17,5 +17,7 @@ am.RegisterRoutes(myMux)
 - `/{AssetsURLPrefix}/script.js`: Serves bundled JS.
 - `/{AssetsURLPrefix}/favicon.svg`: Serves favicon.
 
+Las rutas de los activos principales (`script.js`, `style.css`, `icons.svg`, `favicon.svg`) se guardan relativas cuando el build no declara páginas (shell WASM). La función `Read` de `AssetMin` resuelve estas rutas relativas contra la clave absoluta de la petición HTTP recibida (por ejemplo, `/script.js`).
+
 ## Caching
 Assets are served with `ETag` and `Cache-Control` headers. If an asset changes, the ETag updates automatically.
