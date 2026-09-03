@@ -17,22 +17,70 @@ import (
 	"github.com/tdewolff/minify/v2/xml"
 	twcss "github.com/tinywasm/css"
 	"github.com/tinywasm/fmt"
+	"github.com/tinywasm/fmt/lang"
 	"github.com/tinywasm/font"
 	"github.com/tinywasm/image/favicon"
 	imgmin "github.com/tinywasm/image/min"
 	"github.com/tinywasm/svg/sprite"
 )
 
-const (
-	msgSiteNonRoot        = "sitec: el módulo %s declara RenderSite() pero no es el proyecto raíz — solo el raíz describe el sitio; se ignora"
-	msgTwoRootSites       = "sitec: RenderSite() declarada por dos módulos raíz: %s y %s"
-	msgSiteURLPrecedence  = "sitec: aviso: RenderSite() declara URL %s y BuildConfig trae %s — manda la del proyecto"
-	msgSiteWithoutPages   = "sitec: el proyecto declara RenderSite() (es un sitio estático) pero ningún módulo declara RenderPages(): la salida sería el shell de una aplicación, no un sitio"
-	msgPagesWithoutSite   = "sitec: aviso: el proyecto declara RenderPages() pero no RenderSite(): la salida no tendrá sitemap ni activos estáticos"
-	msgStaticAbsentPrefix = "sitec: activo estático declarado y ausente: "
-	msgFaviconNonRoot     = "sitec: solo el modulo raiz puede declarar Favicon(); lo declara %s"
-	msgNoFavicon          = "sitec: el proyecto no declara Favicon(); las paginas saldran sin icono"
-)
+// Diagnostics are built word by word through lang.Translate so each term can
+// be looked up in the dictionary (tinywasm/fmt/lang). Identifiers, symbols and
+// runtime values are passed as single arguments: they are never translated.
+const msgPrefix = "sitec:"
+
+func msgSiteNonRoot(moduleName string) string {
+	return lang.Translate(msgPrefix, "module", moduleName, "declares", "RenderSite()",
+		"but", "is", "not", "the", "root", "project", "—", "only", "the", "root",
+		"describes", "the", "site;", "ignored").String()
+}
+
+func msgTwoRootSites(first, second string) string {
+	return lang.Translate(msgPrefix, "RenderSite()", "declared", "by", "two", "root",
+		"modules:", first, "and", second).String()
+}
+
+func msgSiteURLPrecedence(siteURL, callerURL string) string {
+	return lang.Translate(msgPrefix, "warning:", "RenderSite()", "declares", "URL", siteURL,
+		"and", "BuildConfig", "carries", callerURL, "—", "the", "project", "wins").String()
+}
+
+func msgSiteWithoutPages() string {
+	return lang.Translate(msgPrefix, "the", "project", "declares", "RenderSite()",
+		"(it", "is", "a", "static", "site)", "but", "no", "module", "declares",
+		"RenderPages():", "the", "output", "would", "be", "an", "application", "shell,",
+		"not", "a", "site").String()
+}
+
+func msgPagesWithoutSite() string {
+	return lang.Translate(msgPrefix, "warning:", "the", "project", "declares", "RenderPages()",
+		"but", "not", "RenderSite():", "the", "output", "will", "have", "no", "sitemap",
+		"and", "no", "static", "assets").String()
+}
+
+func msgStaticAbsent(path string) string {
+	return lang.Translate(msgPrefix, "static", "asset", "declared", "and", "missing:", path).String()
+}
+
+func msgFaviconNonRoot(moduleName string) string {
+	return lang.Translate(msgPrefix, "only", "the", "root", "module", "may", "declare",
+		"Favicon();", "it", "is", "declared", "by", moduleName).String()
+}
+
+func msgNoAssetsExtracted() string {
+	return lang.Translate(msgPrefix, "no", "module", "produced", "assets;", "the", "stylesheet",
+		"would", "come", "out", "empty").String()
+}
+
+func msgEmptyExtraction() string {
+	return lang.Translate(msgPrefix, "empty", "extraction:", "no", "module", "contributed",
+		"assets").String()
+}
+
+func msgNoFavicon() string {
+	return lang.Translate(msgPrefix, "the", "project", "does", "not", "declare", "Favicon();",
+		"pages", "will", "have", "no", "icon").String()
+}
 
 type AssetMin struct {
 	mu sync.Mutex // Mutex for synchronization
@@ -211,7 +259,7 @@ func (c *AssetMin) RouteExtractedAssets(all []*Assets) error {
 			continue
 		}
 		if siteOwner != "" {
-			return fmt.Err(fmt.Sprintf(msgTwoRootSites, siteOwner, a.ModuleName))
+			return fmt.Err(msgTwoRootSites(siteOwner, a.ModuleName))
 		}
 		siteOwner = a.ModuleName
 	}
@@ -224,10 +272,10 @@ func (c *AssetMin) RouteExtractedAssets(all []*Assets) error {
 			continue
 		}
 		if !a.IsRoot {
-			return fmt.Err(fmt.Sprintf(msgFaviconNonRoot, a.ModuleName))
+			return fmt.Err(msgFaviconNonRoot(a.ModuleName))
 		}
 		if faviconOwner != "" {
-			return fmt.Err(fmt.Sprintf(msgFaviconNonRoot, a.ModuleName))
+			return fmt.Err(msgFaviconNonRoot(a.ModuleName))
 		}
 		faviconOwner = a.ModuleName
 		faviconSrc = &favicon.Source{Raster: a.Favicon.Raster, SVG: a.Favicon.SVG}
@@ -284,7 +332,7 @@ func (c *AssetMin) RouteExtractedAssets(all []*Assets) error {
 			c.faviconMu.Unlock()
 			delete(c.allAssets, c.faviconSvgHandler.outputPath)
 			c.updateHtmlFaviconLinks()
-			c.Logger(msgNoFavicon)
+			c.Logger(msgNoFavicon())
 		}
 	}
 
@@ -347,10 +395,10 @@ func (c *AssetMin) RouteExtractedAssets(all []*Assets) error {
 	// este check elimina. A la inversa, páginas sin RenderSite() significan
 	// un sitio que saldrá sin sitemap ni activos estáticos: aviso, no error.
 	if c.site != nil && len(pageOwners) == 0 {
-		return fmt.Err(msgSiteWithoutPages)
+		return fmt.Err(msgSiteWithoutPages())
 	}
 	if c.site == nil && len(pageOwners) > 0 {
-		c.Logger(msgPagesWithoutSite)
+		c.Logger(msgPagesWithoutSite())
 	}
 
 	// 4. Emit sitemap.xml if SiteURL is set
