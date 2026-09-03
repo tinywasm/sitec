@@ -11,8 +11,7 @@ import (
 )
 
 const (
-	cssModulePath        = "tinywasm/css"
-	errNoAssetsExtracted = "sitec: ningún módulo produjo assets; la hoja de estilos saldría vacía"
+	cssModulePath = "tinywasm/css"
 )
 
 type module struct {
@@ -237,7 +236,7 @@ func (e *Extractor) ExtractAll() ([]*Assets, error) {
 	}
 
 	if len(all) == 0 {
-		return nil, fmt.Err(errNoAssetsExtracted)
+		return nil, fmt.Err(msgNoAssetsExtracted())
 	}
 	return all, nil
 }

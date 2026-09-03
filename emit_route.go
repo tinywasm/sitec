@@ -37,12 +37,12 @@ func (c *AssetMin) routeAssets(a *Assets, isRoot, isFramework bool) error {
 			c.site = a.Site
 			if a.Site.URL != "" {
 				if callerURL := c.SiteURL; callerURL != "" && callerURL != a.Site.URL {
-					c.Logger(fmt.Sprintf(msgSiteURLPrecedence, a.Site.URL, callerURL))
+					c.Logger(msgSiteURLPrecedence(a.Site.URL, callerURL))
 				}
 				c.SiteURL = a.Site.URL
 			}
 		} else {
-			c.Logger(fmt.Sprintf(msgSiteNonRoot, a.ModuleName))
+			c.Logger(msgSiteNonRoot(a.ModuleName))
 		}
 	} else if isRoot {
 		// El raíz dejó de declarar RenderSite() (reload): deja de ser un sitio.

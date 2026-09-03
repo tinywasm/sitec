@@ -46,7 +46,7 @@ func TestSiteSoloElRaizDescribeElSitio(t *testing.T) {
 
 	found := false
 	for _, l := range logs {
-		if strings.Contains(l, "example.com/dep") && strings.Contains(l, "no es el proyecto raíz") {
+		if strings.Contains(l, "example.com/dep") && strings.Contains(l, "is not the root project") {
 			found = true
 		}
 	}

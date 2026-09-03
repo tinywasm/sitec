@@ -130,7 +130,7 @@ func TestFaviconOnlyRootModule(t *testing.T) {
 	if !strings.Contains(err.Error(), "github.com/acme/widget") {
 		t.Errorf("expected error to name github.com/acme/widget, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "solo el modulo raiz") {
+	if !strings.Contains(err.Error(), "only the root module") {
 		t.Errorf("expected msgFaviconNonRoot, got: %v", err)
 	}
 }
@@ -211,7 +211,7 @@ func (w *Widget) RenderCSS() *css.Stylesheet { return css.NewStylesheet() }
 	if err == nil {
 		t.Fatalf("expected error when non-root declares Favicon(), got nil")
 	}
-	if !strings.Contains(err.Error(), "solo el modulo raiz") {
+	if !strings.Contains(err.Error(), "only the root module") {
 		t.Errorf("expected error naming module and msgFaviconNonRoot, got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "example.com/widget") && !strings.Contains(err.Error(), "widget") {

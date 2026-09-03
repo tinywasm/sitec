@@ -130,7 +130,7 @@ func Build(cfg BuildConfig) (*Output, error) {
 		return nil, err
 	}
 	if len(all) == 0 {
-		return nil, fmt.Err("sitec: extracción vacía: ningún módulo aportó assets")
+		return nil, fmt.Err(msgEmptyExtraction())
 	}
 
 	outDir := cfg.OutputDir
@@ -275,7 +275,7 @@ func copyStaticAssets(am *AssetMin, rootDir string, staticAssets []string) error
 		srcPath := filepath.Join(rootDir, entry)
 		info, err := os.Stat(srcPath)
 		if err != nil {
-			return fmt.Err("sitec: activo estático declarado y ausente:", entry)
+			return fmt.Err(msgStaticAbsent(entry))
 		}
 
 		if info.IsDir() {

@@ -21,7 +21,7 @@ func TestExtractAll_Empty(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error on empty extraction")
 	}
-	if !strings.Contains(err.Error(), "ningún módulo produjo assets") {
+	if !strings.Contains(err.Error(), "no module produced assets") {
 		t.Errorf("expected empty extraction error, got: %v", err)
 	}
 	_ = all
